@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // Runs the one Homebrew command that updates the app and reports its live output and true result.
 // From Ting and Splash Finish; the names of the app are parameters (`AppUpdateIdentity`).
 import BobukCore
@@ -24,7 +25,7 @@ import Foundation
 /// the old place only when no record is left. With no installed copy at all, the viewer shows the
 /// result unless someone has already seen it.
 /// Who shows a run, given explicitly by how the process was started.
-public enum HomebrewUpdateRole: Equatable, Sendable {
+public enum HomebrewUpdateRole: Equatable {
     /// The copy that started the update from its menu.
     case owner
     /// The copy in the run folder that the helper started while the installed app was gone.
@@ -37,8 +38,8 @@ public enum HomebrewUpdateRole: Equatable, Sendable {
     /// After a failure the viewer also hands over, so that the app is back once its window is closed.
     public func restarts(after outcome: HomebrewUpdateOutcome) -> Bool {
         switch self {
-        case .owner, .viewer: outcome == .upgraded
-        case .final: false
+        case .owner, .viewer: return outcome == .upgraded
+        case .final: return false
         }
     }
 
@@ -47,7 +48,6 @@ public enum HomebrewUpdateRole: Equatable, Sendable {
     }
 }
 
-@MainActor
 public final class HomebrewUpdateRunner {
     /// Nil for a copy that only watches a run that another copy started.
     public let install: HomebrewInstall?
@@ -91,7 +91,7 @@ public final class HomebrewUpdateRunner {
     @discardableResult
     public func start(onOutput: @escaping (String) -> Void, onFinish: @escaping (HomebrewUpdateOutcome) -> Void) -> Bool {
         guard !isRunning else { return false }
-        guard let install else {
+        guard let install = install else {
             onFinish(.failed(exitCode: -1, output: "Homebrew does not manage this copy of \(app.displayName)."))
             return true
         }
@@ -162,7 +162,7 @@ public final class HomebrewUpdateRunner {
         self.onOutput = onOutput
         self.onFinish = onFinish
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+            self?.poll()
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -172,8 +172,8 @@ public final class HomebrewUpdateRunner {
     /// Stops brew. The result is a cancel, never a success. A watching copy has no helper of its
     /// own; it asks the helper through the run folder.
     public func cancel() {
-        guard isRunning, let directory else { return }
-        if let helper, helper.isRunning {
+        guard isRunning, let directory = directory else { return }
+        if let helper = helper, helper.isRunning {
             helper.terminate()
         } else {
             try? Data().write(to: directory.appendingPathComponent("cancel"))
@@ -193,8 +193,8 @@ public final class HomebrewUpdateRunner {
         case incomplete(String)
         public var errorDescription: String? {
             switch self {
-            case .noBundle: "this copy is not running from an app bundle that can be copied."
-            case .incomplete(let path): "the copy has no executable at \(path)."
+            case .noBundle: return "this copy is not running from an app bundle that can be copied."
+            case .incomplete(let path): return "the copy has no executable at \(path)."
             }
         }
     }
@@ -202,7 +202,7 @@ public final class HomebrewUpdateRunner {
     /// Copies `source` (<App>.app) to `<run folder>/viewer/<App>.app` and checks that its executable
     /// is there, the one the helper starts.
     public static func prepareViewer(from source: URL?, in folder: URL, app: AppUpdateIdentity) throws {
-        guard let source else { throw ViewerError.noBundle }
+        guard let source = source else { throw ViewerError.noBundle }
         let fm = FileManager.default
         let viewer = folder.appendingPathComponent("viewer")
         try fm.createDirectory(at: viewer, withIntermediateDirectories: true)
@@ -219,34 +219,44 @@ public final class HomebrewUpdateRunner {
         for folder in (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         where folder.lastPathComponent != current.lastPathComponent {
             let date = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            if let date, date < limit { try? fm.removeItem(at: folder) }
+            if let date = date, date < limit { try? fm.removeItem(at: folder) }
         }
     }
 
     /// Tells the helper that the app has seen the result; with `relaunch` the helper starts the
     /// installed copy again as soon as this process has quit.
     public func acknowledge(relaunch: Bool) {
-        guard let directory else { return }
+        guard let directory = directory else { return }
         // Plain writes: the helper only checks that the markers exist.
         if relaunch { try? Data().write(to: directory.appendingPathComponent("relaunch")) }
         try? Data().write(to: directory.appendingPathComponent("handled"))
     }
 
     private func poll() {
-        guard let directory, isRunning else { return }
-        let output = Self.output(in: directory)
-        if output != lastOutput {
-            lastOutput = output
-            onOutput?(output)
+        if let directory = directory {
+            if isRunning {
+                let output = Self.output(in: directory)
+                if output != lastOutput {
+                    lastOutput = output
+                    if let cb = onOutput {
+                        cb(output)
+                    }
+                }
+                if let outcome = Self.outcome(in: directory) {
+                    if let t = timer {
+                        t.invalidate()
+                    }
+                    timer = nil
+                    helper = nil
+                    let finish = onFinish
+                    onOutput = nil
+                    onFinish = nil
+                    if let f = finish {
+                        f(outcome)
+                    }
+                }
+            }
         }
-        guard let outcome = Self.outcome(in: directory) else { return }
-        timer?.invalidate()
-        timer = nil
-        helper = nil
-        let finish = onFinish
-        onOutput = nil
-        onFinish = nil
-        finish?(outcome)
     }
 
     public static func output(in directory: URL) -> String {
@@ -322,3 +332,4 @@ public final class HomebrewUpdateRunner {
     final
     """#
 }
+#endif

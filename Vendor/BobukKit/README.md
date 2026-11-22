@@ -4,9 +4,9 @@
 
 The shared library of the native bobuk-io apps (Ting, lowkey, Splash Finish, HAScS): their
 window shell, panels, controls, system services, Homebrew updates and the release kit.
-Canonical checkout: `~/GitHub/bobuk.io/BobukKit`. This snapshot declares `swift-tools-version: 5.3`
-(Swift Package Manager 5.3 syntax: no `.swiftLanguageMode`, no package-level traits), but the code
-still targets macOS 10.15 and uses Swift 5.3 APIs, so building it needs a toolchain at least as new as Swift 5.2.
+Canonical checkout: `~/GitHub/bobuk.io/BobukKit`. This snapshot builds with Swift 5.3 / Xcode 12:
+`swift-tools-version: 5.3`, macOS 10.15 deployment target, no concurrency annotations, no Observation
+framework and XCTest instead of Swift Testing.
 **Before you write a window, a panel, a button style, a hotkey, a file store, a process runner
 or an update flow in an app, find it in the catalog below.** If it is missing and two apps
 need it, add it here, not to the app. Agents: read `AGENTS.md`.
@@ -47,8 +47,8 @@ need it, add it here, not to the app. Agents: read `AGENTS.md`.
 | One Codable value in a JSON file, explicit corrupt-file policy | `JSONFileStore` | BobukCore |
 | Atomic writes that refuse symlinks; single-instance lock | `SafeFile.write`, `FileLock` | BobukCore |
 | Most-recent-first history | `RecentList` | BobukCore |
-| Run a program with time limit, output cap and cancel | `ChildProcess.run` | BobukCore |
-| App ↔ command-line companion IPC | `MessagePortServer`, `MessagePortClient` (`sendTimeout`, `waitForServer(keepWaiting:)`) | BobukCore |
+| Run a program with time limit, output cap and cancel | `ChildProcess.run` (completion handler or synchronous overload) | BobukCore |
+| App ↔ command-line companion IPC | `MessagePortServer`, `MessagePortClient` (`sendTimeout`, `waitForServer(keepWaiting:completion:)`) | BobukCore |
 | The real `.app`, version, resource bundles without `Bundle.module` (also under `swift test`) | `AppBundle` | BobukCore |
 | Logging | `BobukLog.logger("category")` | BobukCore |
 | Sparkle or Homebrew updates, the brew progress window | `UpdateService.detect(app:makeSparkle:)`, `HomebrewLaunch` | BobukUpdates |
@@ -77,7 +77,7 @@ need it, add it here, not to the app. Agents: read `AGENTS.md`.
 | `BobukSystem` | BobukCore, AppKit, Carbon, Security, ServiceManagement | |
 | `BobukUI` | BobukCore, BobukSystem | |
 | `BobukUpdates` | BobukCore, BobukSystem, BobukUI | Sparkle is **not** a dependency: apps that ship Sparkle pass a `SparkleUpdating` adapter. |
-| `BobukTestSupport` | BobukCore | Test targets only; no assertions, works with XCTest and Swift Testing. |
+| `BobukTestSupport` | BobukCore | Test targets only; no assertions, works with XCTest. |
 
 ## Local copies, not remote dependencies
 

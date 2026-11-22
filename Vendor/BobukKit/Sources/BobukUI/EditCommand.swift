@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // ⌘ key equivalents in panels of accessory (LSUIElement) apps. Such an app has no live Edit menu
 // while it is not active, so ⌘C/⌘V/⌘X/⌘A/⌘Z must be sent to the text field here, matched by the
 // Latin layout so they also work with Russian or Ukrainian input; every other ⌘ shortcut is
@@ -39,33 +40,34 @@ public enum EditCommand: Equatable {
 
     /// Sends a text command along this window's responder chain (not the key window's): the first
     /// responder, its superviews, the window and its delegate. True when someone handled it.
-    @MainActor @discardableResult
+    @discardableResult
     public static func send(_ selector: Selector, in window: NSWindow) -> Bool {
         if let responder = window.firstResponder, responder.tryToPerform(selector, with: window) { return true }
         return NSApp.sendAction(selector, to: nil, from: window)
     }
 
     /// Classifies a key event with the Latin character of its key.
-    @MainActor public static func classify(_ event: NSEvent) -> EditCommand {
+    public static func classify(_ event: NSEvent) -> EditCommand {
         classify(keyCode: event.keyCode, latin: KeyEquivalent.latin(of: event), flags: event.modifierFlags)
     }
 }
 
 public enum KeyEquivalent {
     /// The character of the ASCII-capable layout for the event's key: "v" for ⌘М on Russian.
-    @MainActor public static func latin(of event: NSEvent) -> String? {
+    public static func latin(of event: NSEvent) -> String? {
         KeyTranslator.latin(event.keyCode) ?? event.charactersIgnoringModifiers?.lowercased()
     }
 
     /// True for exactly ⌘ plus the key that types `latin` on the ASCII-capable layout.
-    @MainActor public static func isCommand(_ event: NSEvent, latin: String) -> Bool {
+    public static func isCommand(_ event: NSEvent, latin: String) -> Bool {
         event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command
             && Self.latin(of: event) == latin
     }
 
     /// True when the first responder is composing text in an input method (marked text):
     /// Return and arrows belong to the input method then.
-    @MainActor public static func isComposing(in window: NSWindow?) -> Bool {
+    public static func isComposing(in window: NSWindow?) -> Bool {
         (window?.firstResponder as? NSTextView)?.hasMarkedText() == true
     }
 }
+#endif

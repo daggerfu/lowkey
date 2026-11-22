@@ -1,10 +1,11 @@
+#if canImport(AppKit)
 // Line icons for window strips, row actions and info lines, from lowkey. One CGPath per glyph on a
 // 16×16 grid (y grows downward), drawn by AppKit views and SwiftUI alike, so every app's close
 // cross looks the same. Use these instead of SF Symbols in chrome.
 import AppKit
 import SwiftUI
 
-public enum Glyph: String, CaseIterable, Sendable {
+public enum Glyph: String, CaseIterable {
     /// A cross: close or hide a window, dismiss a row.
     case close
     /// A small round "q": close for good (lowkey closes a site and its session).
@@ -93,7 +94,7 @@ public enum Glyph: String, CaseIterable, Sendable {
     }
 
     /// Strokes the glyph into the current AppKit graphics context (a flipped view).
-    @MainActor public func draw(in rect: NSRect, color: NSColor, weight: CGFloat = 1.6) {
+    public func draw(in rect: NSRect, color: NSColor, weight: CGFloat = 1.6) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         context.addPath(path(in: rect))
@@ -107,7 +108,7 @@ public enum Glyph: String, CaseIterable, Sendable {
 }
 
 /// A non-interactive glyph (the lock of an info line). Hidden from accessibility.
-@MainActor public final class GlyphView: NSView {
+public final class GlyphView: NSView {
     public var glyph: Glyph { didSet { needsDisplay = true } }
     public var color: NSColor { didSet { needsDisplay = true } }
     public var weight: CGFloat = 1.4 { didSet { needsDisplay = true } }
@@ -144,7 +145,7 @@ public struct GlyphImage: View {
             .stroke(style: StrokeStyle(lineWidth: Glyph.lineWidth(for: CGRect(x: 0, y: 0, width: size, height: size), weight: weight),
                                        lineCap: .round, lineJoin: .round))
             .frame(width: size, height: size)
-            .accessibilityHidden(true)
+            .accessibility(hidden: true)
     }
 }
 
@@ -153,3 +154,4 @@ public struct GlyphShape: Shape {
     public init(glyph: Glyph) { self.glyph = glyph }
     public func path(in rect: CGRect) -> Path { Path(glyph.path(in: rect)) }
 }
+#endif

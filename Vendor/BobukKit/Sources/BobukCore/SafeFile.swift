@@ -1,6 +1,10 @@
 // Writes that never follow a planted symlink, never leave a half-written file and keep the old
 // permissions; a lock that also keeps a second copy of an app from running. From Splash Finish.
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 public enum SafeFileError: LocalizedError, Equatable {
@@ -11,10 +15,10 @@ public enum SafeFileError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .symlink(let path): "Refusing symlink: \(path)"
-        case .cannotWrite(let path): "Cannot write \(path)"
-        case .cannotLock(let path): "Cannot open lock \(path)"
-        case .locked(let message): message
+        case .symlink(let path): return "Refusing symlink: \(path)"
+        case .cannotWrite(let path): return "Cannot write \(path)"
+        case .cannotLock(let path): return "Cannot open lock \(path)"
+        case .locked(let message): return message
         }
     }
 }

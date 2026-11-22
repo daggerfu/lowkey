@@ -1,12 +1,13 @@
+#if canImport(AppKit)
 // AppKit/SwiftUI theme bindings, live ThemeStore with per-app persistence and surface helpers.
 import AppKit
 import BobukCore
-import Observation
 import SwiftUI
+import Combine
 
 public extension NSColor {
     convenience init(_ rgb: RGB, alpha: CGFloat = 1) {
-        self.init(srgbRed: rgb.r, green: rgb.g, blue: rgb.b, alpha: alpha)
+        self.init(srgbRed: CGFloat(rgb.r), green: CGFloat(rgb.g), blue: CGFloat(rgb.b), alpha: alpha)
     }
 
     var rgb: RGB? {
@@ -17,7 +18,7 @@ public extension NSColor {
 
 public extension Color {
     init(_ rgb: RGB, opacity: Double = 1) {
-        self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: opacity)
+        self.init(red: Double(rgb.r), green: Double(rgb.g), blue: Double(rgb.b), opacity: opacity)
     }
 }
 
@@ -91,8 +92,8 @@ public extension ThemeTokens {
 
 /// Live, persisted per-app theme store.
 /// Apps create one store configured with their own UserDefaults keys and defaults.
-@MainActor @Observable public final class ThemeStore {
-    public struct StorageKeys: Equatable, Sendable {
+public final class ThemeStore: ObservableObject {
+    public struct StorageKeys: Equatable {
         /// Key for `AppearanceChoice` (`"system"`, `"light"`, `"dark"`).
         public var appearance: String
         /// Key for JSON-encoded `ThemePaletteConfig`.
@@ -114,11 +115,11 @@ public extension ThemeTokens {
     /// that manage per-window appearance (like lowkey).
     public let appliesToApplication: Bool
 
-    @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
-    @ObservationIgnored nonisolated(unsafe) private var contrastObserver: NSObjectProtocol?
+    private let defaults: UserDefaults
+    private var appearanceObserver: NSObjectProtocol?
+    private var contrastObserver: NSObjectProtocol?
 
-    public var appearance: AppearanceChoice {
+    @Published public var appearance: AppearanceChoice {
         didSet {
             guard appearance != oldValue else { return }
             defaults.set(appearance.rawValue, forKey: keys.appearance)
@@ -128,7 +129,7 @@ public extension ThemeTokens {
         }
     }
 
-    public var palette: ThemePaletteConfig {
+    @Published public var palette: ThemePaletteConfig {
         didSet {
             guard palette != oldValue else { return }
             persistPalette()
@@ -136,8 +137,8 @@ public extension ThemeTokens {
         }
     }
 
-    public private(set) var systemIsDark: Bool
-    public private(set) var increasedContrast: Bool
+    @Published public private(set) var systemIsDark: Bool
+    @Published public private(set) var increasedContrast: Bool
 
     public init(defaults: UserDefaults = .standard,
                 keys: StorageKeys = StorageKeys(),
@@ -166,14 +167,20 @@ public extension ThemeTokens {
         if let observer = contrastObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
+        if let appearanceObserver = appearanceObserver {
+            NotificationCenter.default.removeObserver(appearanceObserver)
+        }
     }
 
     /// True when the active appearance resolves to dark mode.
     public var isDark: Bool {
         switch appearance {
-        case .dark: true
-        case .light: false
-        case .system: systemIsDark
+        case .dark:
+            return true
+        case .light:
+            return false
+        case .system:
+            return systemIsDark
         }
     }
 
@@ -242,19 +249,19 @@ public extension ThemeTokens {
     }
 
     private func startObservingSystem() {
-        if let app = NSApp {
-            appearanceObservation = app.observe(\.effectiveAppearance) { [weak self] _, _ in
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated { self?.handleSystemChange() }
-                }
-            }
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("NSApplicationDidChangeEffectiveAppearanceNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleSystemChange()
         }
         contrastObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleSystemChange() }
+            self?.handleSystemChange()
         }
     }
 
@@ -281,8 +288,8 @@ public extension ThemeTokens {
     }
 
     private static func readSystemIsDark() -> Bool {
-        if let app = NSApp {
-            return app.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        if let app = NSApp, let match = app.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+            return match == .darkAqua
         }
         return UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     }
@@ -304,3 +311,4 @@ public extension ThemeTokens {
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }
 }
+#endif

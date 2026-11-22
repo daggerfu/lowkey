@@ -1,3 +1,4 @@
+#if canImport(Carbon)
 // System-wide shortcuts through Carbon `RegisterEventHotKey`: no Accessibility or Input Monitoring
 // permission, no helper. Carbon reports both press and release. From Ting's HotkeyService; Splash
 // Finish's single ⌥⌘S and every future app use the same center.
@@ -6,9 +7,8 @@ import BobukCore
 import Carbon
 import OSLog
 
-@MainActor
 public final class GlobalHotkeyCenter {
-    public enum Status: Equatable, Sendable {
+    public enum Status: Equatable {
         /// Not registered, or turned off (for example while a new shortcut is recorded).
         case inactive
         case active
@@ -32,7 +32,7 @@ public final class GlobalHotkeyCenter {
     private let signature: OSType
     private let log = BobukLog.logger("hotkey")
     /// Tests supply a backend instead of registering real global shortcuts.
-    private let registerOverride: ((Hotkey, UInt32) -> Status)?
+    private var registerOverride: ((Hotkey, UInt32) -> Status)?
 
     /// Called whenever a registration changes its status.
     public var onStatusChange: ((UInt32, Status) -> Void)?
@@ -40,17 +40,15 @@ public final class GlobalHotkeyCenter {
     /// `signature` is a four-letter code unique to the app, such as `'TING'` (0x5449_4E47).
     public init(signature: OSType, register override: ((Hotkey, UInt32) -> Status)? = nil) {
         self.signature = signature
-        registerOverride = override
+        self.registerOverride = override
     }
 
     deinit {
         // Carbon keeps the handler and its userData pointer; remove both with the center.
         let refs = registrations.values.compactMap(\.ref)
         let handler = handlerRef
-        MainActor.assumeIsolated {
-            for ref in refs { UnregisterEventHotKey(ref) }
-            if let handler { RemoveEventHandler(handler) }
-        }
+        for ref in refs { UnregisterEventHotKey(ref) }
+        if let handler = handler { RemoveEventHandler(handler) }
     }
 
     public func status(_ id: UInt32) -> Status { statuses[id] ?? .inactive }
@@ -77,7 +75,7 @@ public final class GlobalHotkeyCenter {
         if registrations.contains(where: { $0.key != id && $0.value.hotkey == hotkey }) {
             return setStatus(.failed("\(hotkey.display) is already used here."), for: id)
         }
-        if let registerOverride { return setStatus(registerOverride(hotkey, id), for: id) }
+        if let registerOverride = registerOverride { return setStatus(registerOverride(hotkey, id), for: id) }
         return carbonRegister(keyCode: keyCode, modifiers: modifiers, display: hotkey.display, id: id)
     }
 
@@ -123,7 +121,7 @@ public final class GlobalHotkeyCenter {
     private func setStatus(_ status: Status, for id: UInt32) -> Status {
         guard statuses[id] != status else { return status }
         statuses[id] = status
-        log.info("Hotkey \(id) \(self.registrations[id]?.hotkey.string ?? "none", privacy: .public): \(String(describing: status), privacy: .public)")
+        os_log("Hotkey %{public}d %{public}@: %{public}@", log: log, type: .info, Int(id), registrations[id]?.hotkey.string ?? "none", String(describing: status))
         onStatusChange?(id, status)
         return status
     }
@@ -138,7 +136,7 @@ public final class GlobalHotkeyCenter {
         var ref: EventHotKeyRef?
         let result = RegisterEventHotKey(UInt32(keyCode), carbonModifiers, EventHotKeyID(signature: signature, id: id),
                                          GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &ref)
-        if result == noErr, let ref {
+        if result == noErr, let ref = ref {
             registrations[id]?.ref = ref
             return setStatus(.active, for: id)
         } else if result == OSStatus(eventHotKeyExistsErr) {
@@ -157,20 +155,19 @@ public final class GlobalHotkeyCenter {
         let context = Unmanaged.passUnretained(self).toOpaque()
         // The closure captures nothing, so it converts to the C function pointer Carbon needs.
         InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
-            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+            guard let event = event, let userData = userData else { return OSStatus(eventNotHandledErr) }
             var hotKeyID = EventHotKeyID()
             let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                                            nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             guard status == noErr else { return OSStatus(eventNotHandledErr) }
             let kind = GetEventKind(event)
             let time = GetEventTime(event)
-            let handled = MainActor.assumeIsolated { () -> Bool in
-                let center = Unmanaged<GlobalHotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
-                guard hotKeyID.signature == center.signature, center.registrations[hotKeyID.id]?.ref != nil else { return false }
-                center.receive(hotKeyID.id, pressed: kind == UInt32(kEventHotKeyPressed), at: time)
-                return true
-            }
-            return handled ? noErr : OSStatus(eventNotHandledErr)
+            // Carbon delivers application events on the main run loop; no queue hop is needed.
+            let center = Unmanaged<GlobalHotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
+            guard hotKeyID.signature == center.signature,
+                  center.registrations[hotKeyID.id]?.ref != nil else { return OSStatus(eventNotHandledErr) }
+            center.receive(hotKeyID.id, pressed: kind == UInt32(kEventHotKeyPressed), at: time)
+            return noErr
         }, specs.count, &specs, context, &handlerRef)
     }
 }
@@ -181,3 +178,4 @@ public extension OSType {
         self = text.utf8.prefix(4).reduce(0) { $0 << 8 | OSType($1) }
     }
 }
+#endif

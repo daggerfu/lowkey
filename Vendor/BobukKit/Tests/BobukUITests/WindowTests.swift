@@ -1,10 +1,11 @@
+#if canImport(AppKit)
 import AppKit
 import SwiftUI
-import Testing
+import XCTest
 @testable import BobukUI
 
 /// Windows are created but never shown on screen or activated.
-@MainActor @Suite(.serialized) struct ChromeWindowTests {
+final class ChromeWindowTests: XCTestCase {
     final class Delegate: NSObject, NSWindowDelegate {
         var allowClose = true
         var asked = 0
@@ -17,108 +18,108 @@ import Testing
                          charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
     }
 
-    @Test func closeButtonLivesInTheStripAndUsesPerformClose() {
+    func testCloseButtonLivesInTheStripAndUsesPerformClose() {
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300))
         let delegate = Delegate()
         window.delegate = delegate
         window.orderBack(nil)
-        #expect(window.strip.buttons.first === window.closeButton)
-        #expect(window.closeButton.glyph == .close)
-        #expect(window.closeButton.label == "Close · ⌘W")
+        XCTAssert(window.strip.buttons.first === window.closeButton)
+        XCTAssertEqual(window.closeButton.glyph, .close)
+        XCTAssertEqual(window.closeButton.label, "Close · ⌘W")
 
         delegate.allowClose = false
         window.closeButton.performPress()
-        #expect(delegate.asked == 1)
-        #expect(window.isVisible)
+        XCTAssertEqual(delegate.asked, 1)
+        XCTAssert(window.isVisible)
 
         delegate.allowClose = true
         window.closeButton.performPress()
-        #expect(delegate.asked == 2)
-        #expect(!window.isVisible)
+        XCTAssertEqual(delegate.asked, 2)
+        XCTAssert(!window.isVisible)
         // NSWindow does not retain its delegate: detach it before the delegate goes away.
         window.delegate = nil
     }
 
-    @Test func commandWClosesAndCanBeTurnedOff() {
+    func testCommandWClosesAndCanBeTurnedOff() {
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300))
         window.orderBack(nil)
         window.closesOnCommandW = false
-        #expect(!window.performKeyEquivalent(with: key("w", keyCode: 13, window: window)))
-        #expect(window.isVisible)
+        XCTAssert(!window.performKeyEquivalent(with: key("w", keyCode: 13, window: window)))
+        XCTAssert(window.isVisible)
         window.closesOnCommandW = true
-        #expect(window.performKeyEquivalent(with: key("w", keyCode: 13, window: window)))
-        #expect(!window.isVisible)
+        XCTAssert(window.performKeyEquivalent(with: key("w", keyCode: 13, window: window)))
+        XCTAssert(!window.isVisible)
     }
 
-    @Test func layoutAccentStripSeparatorBody() {
+    func testLayoutAccentStripSeparatorBody() {
         let left = StripButton(glyph: .back, label: "Back")
         let right = StripButton(glyph: .forward, label: "Forward")
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), leading: [left], trailing: [right])
         window.setContent(NSHostingView(rootView: Color.red))
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(window.accentBar.frame.height == ChromeMetrics.accentHeight)
-        #expect(abs(window.strip.frame.height - ChromeMetrics.stripHeight) < 0.5)
-        #expect(window.body.subviews.count == 1)
-        #expect(window.strip.buttons.map(\.glyph) == [.close, .back, .forward])
+        XCTAssertEqual(window.accentBar.frame.height, ChromeMetrics.accentHeight)
+        XCTAssert(abs(window.strip.frame.height - ChromeMetrics.stripHeight) < 0.5)
+        XCTAssertEqual(window.body.subviews.count, 1)
+        XCTAssertEqual(window.strip.buttons.map(\.glyph), [.close, .back, .forward])
         let leftFrame = left.convert(left.bounds, to: nil), rightFrame = right.convert(right.bounds, to: nil)
-        #expect(leftFrame.minX < rightFrame.minX)
-        #expect(rightFrame.maxX <= 500)
+        XCTAssert(leftFrame.minX < rightFrame.minX)
+        XCTAssert(rightFrame.maxX <= 500)
         window.removeContent()
-        #expect(window.body.subviews.isEmpty)
+        XCTAssert(window.body.subviews.isEmpty)
     }
 
-    @Test func editCommandsReachTheTextFieldWithoutAnEditMenu() {
+    func testEditCommandsReachTheTextFieldWithoutAnEditMenu() {
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200))
         let field = NSTextField(string: "hello")
         field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
         window.body.addSubview(field)
         window.orderBack(nil)
-        #expect(window.makeFirstResponder(field))
-        #expect(window.performKeyEquivalent(with: key("a", keyCode: 0, window: window)))
-        #expect((field.currentEditor() as? NSTextView)?.selectedRange() == NSRange(location: 0, length: 5))
+        XCTAssert(window.makeFirstResponder(field))
+        XCTAssert(window.performKeyEquivalent(with: key("a", keyCode: 0, window: window)))
+        XCTAssertEqual((field.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 5))
         // ⌘Q and other commands are left to the app's menu.
-        #expect(!window.performKeyEquivalent(with: key("q", keyCode: 12, window: window)))
+        XCTAssert(!window.performKeyEquivalent(with: key("q", keyCode: 12, window: window)))
         // A non-text first responder (a web view) keeps the normal path for edit keys.
         let custom = NSView(frame: NSRect(x: 0, y: 50, width: 50, height: 50))
         window.body.addSubview(custom)
         _ = window.makeFirstResponder(window.contentView)
-        #expect(!window.performKeyEquivalent(with: key("a", keyCode: 0, window: window)))
+        XCTAssert(!window.performKeyEquivalent(with: key("a", keyCode: 0, window: window)))
         window.close()
     }
 
-    @Test func chromeHeightSizesTheBody() {
-        #expect(ChromeMetrics.chromeHeight() == ChromeMetrics.accentHeight + ChromeMetrics.stripHeight + 1)
-        #expect(ChromeMetrics.windowSize(forBody: NSSize(width: 540, height: 485)).height == 485 + ChromeMetrics.chromeHeight())
+    func testChromeHeightSizesTheBody() {
+        XCTAssertEqual(ChromeMetrics.chromeHeight(), ChromeMetrics.accentHeight + ChromeMetrics.stripHeight + 1)
+        XCTAssertEqual(ChromeMetrics.windowSize(forBody: NSSize(width: 540, height: 485)).height, 485 + ChromeMetrics.chromeHeight())
     }
 
-    @Test func fixedWindowsHaveNoResizeOrFullScreen() {
+    func testFixedWindowsHaveNoResizeOrFullScreen() {
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), resizable: false, showsTitle: true)
         window.title = "Demo Settings"
-        #expect(!window.styleMask.contains(.resizable))
-        #expect(!window.collectionBehavior.contains(.fullScreenPrimary))
-        #expect(!window.strip.handlesDoubleClick)
-        #expect(window.strip.title == "Demo Settings")
+        XCTAssert(!window.styleMask.contains(.resizable))
+        XCTAssert(!window.collectionBehavior.contains(.fullScreenPrimary))
+        XCTAssert(!window.strip.handlesDoubleClick)
+        XCTAssertEqual(window.strip.title, "Demo Settings")
     }
 
-    @Test func stripButtonColorsFollowTheWindowStyle() {
+    func testStripButtonColorsFollowTheWindowStyle() {
         let style = ChromeStyle(panel: .white, ink: .black, muted: .gray, accent: .orange, separator: .lightGray)
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), style: style)
-        #expect(window.closeButton.resolvedStyle == style)
-        #expect(window.closeButton.glyphColor() == .gray)
-        #expect(window.closeButton.isDestructive)
+        XCTAssertEqual(window.closeButton.resolvedStyle, style)
+        XCTAssertEqual(window.closeButton.glyphColor(), .gray)
+        XCTAssert(window.closeButton.isDestructive)
         var tinted = style
         tinted.destructiveHover = nil
         window.setChromeStyle(tinted)
-        #expect(window.closeButton.resolvedStyle.destructiveHover == nil)
-        #expect(window.accentBar.color == .orange)
+        XCTAssertEqual(window.closeButton.resolvedStyle.destructiveHover, nil)
+        XCTAssertEqual(window.accentBar.color, .orange)
         window.closeButton.isEnabled = false
         var pressed = false
         window.closeButton.onPress = { _ in pressed = true }
         window.closeButton.performPress()
-        #expect(!pressed)
+        XCTAssert(!pressed)
     }
 
-    @Test func hostedWindowControllerReleasesContent() {
+    func testHostedWindowControllerReleasesContent() {
         var builds = 0
         var closes = 0
         let controller = HostedWindowController(window: { ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200)) },
@@ -126,82 +127,83 @@ import Testing
         controller.onClose = { closes += 1 }
         controller.show(activate: false)
         let first = controller.window as? ChromeWindow
-        #expect(first?.body.subviews.count == 1)
-        #expect(controller.isOpen)
+        XCTAssertEqual(first?.body.subviews.count, 1)
+        XCTAssert(controller.isOpen)
         (controller.window as? ChromeWindow)?.closeButton.performPress()
-        #expect(controller.window == nil)
-        #expect(first?.body.subviews.isEmpty == true)
-        #expect(closes == 1)
+        XCTAssertEqual(controller.window, nil)
+        XCTAssertEqual(first?.body.subviews.isEmpty, true)
+        XCTAssertEqual(closes, 1)
         controller.show(activate: false)
-        #expect(builds == 2)
+        XCTAssertEqual(builds, 2)
         controller.close()
     }
 
-    @Test func swiftUIContentStartsRightBelowTheChrome() {
+    func testSwiftUIContentStartsRightBelowTheChrome() {
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 223))
         let hosting = window.setContent(Color.red.frame(width: 300, height: 200))
         window.contentView?.layoutSubtreeIfNeeded()
-        #expect(hosting.safeAreaRegions.isEmpty)
-        #expect(hosting.fittingSize.height == 200)
-        #expect(abs(window.body.frame.height - 200) < 0.5)
-        #expect(window.contentSize(forBody: NSSize(width: 300, height: 600)).height == 600 + ChromeMetrics.chromeHeight())
+        // The hosting view's 13.3+ safe-area property is unavailable on 10.15; verify it fills the body instead.
+        XCTAssertEqual(hosting.frame, window.body.bounds)
+        XCTAssertEqual(hosting.fittingSize.height, 200)
+        XCTAssert(abs(window.body.frame.height - 200) < 0.5)
+        XCTAssertEqual(window.contentSize(forBody: NSSize(width: 300, height: 600)).height, 600 + ChromeMetrics.chromeHeight())
     }
 
-    @Test func hostedControllerPreparesWithoutShowingAndFitsContent() {
+    func testHostedControllerPreparesWithoutShowingAndFitsContent() {
         let controller = HostedWindowController(window: { ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), resizable: false) },
                                                 rootView: { Color.blue.frame(width: 320, height: 180) })
         controller.sizesToFitContent = true
         let window = controller.prepare()
-        #expect(!window.isVisible && !controller.isOpen)
-        #expect(controller.prepare() === window)
-        #expect(abs((window as! ChromeWindow).body.frame.height - 180) < 0.5)
-        #expect(abs(window.contentLayoutRect.width - 320) < 0.5)
+        XCTAssert(!window.isVisible && !controller.isOpen)
+        XCTAssert(controller.prepare() === window)
+        XCTAssert(abs((window as! ChromeWindow).body.frame.height - 180) < 0.5)
+        XCTAssert(abs(window.contentLayoutRect.width - 320) < 0.5)
     }
 
-    @Test func windowReferenceFindsItsHost() {
+    func testWindowReferenceFindsItsHost() {
         let reference = WindowReference()
         let window = ChromeWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200))
         window.setContent(Color.clear.windowReference(reference))
         window.contentView?.layoutSubtreeIfNeeded()
         window.orderBack(nil)
-        #expect(reference.window === window)
+        XCTAssert(reference.window === window)
         reference.close()
-        #expect(!window.isVisible)
+        XCTAssert(!window.isVisible)
     }
 }
 
-@MainActor @Suite(.serialized) struct BobukPanelTests {
-    @Test func kinds() {
+final class BobukPanelTests: XCTestCase {
+    func testKinds() {
         let launcher = BobukPanel(kind: .launcher)
-        #expect(launcher.level == .popUpMenu)
-        #expect(launcher.styleMask.contains(.nonactivatingPanel))
-        #expect(launcher.collectionBehavior.contains(.stationary))
-        #expect(launcher.routesEditCommands)
-        #expect(launcher.canBecomeKey && !launcher.canBecomeMain)
+        XCTAssertEqual(launcher.level, .popUpMenu)
+        XCTAssert(launcher.styleMask.contains(.nonactivatingPanel))
+        XCTAssert(launcher.collectionBehavior.contains(.stationary))
+        XCTAssert(launcher.routesEditCommands)
+        XCTAssert(launcher.canBecomeKey && !launcher.canBecomeMain)
         let prompt = BobukPanel(kind: .prompt)
-        #expect(!prompt.styleMask.contains(.nonactivatingPanel))
-        #expect(prompt.dismissesOnAppDeactivation && !prompt.routesEditCommands)
+        XCTAssert(!prompt.styleMask.contains(.nonactivatingPanel))
+        XCTAssert(prompt.dismissesOnAppDeactivation && !prompt.routesEditCommands)
         let hud = BobukPanel(kind: .hud)
-        #expect(hud.ignoresMouseEvents && !hud.canBecomeKey && !hud.dismissesOnResignKey)
+        XCTAssert(hud.ignoresMouseEvents && !hud.canBecomeKey && !hud.dismissesOnResignKey)
     }
 
-    @Test func dismissalIsSuspendedWhileAMenuTracks() {
+    func testDismissalIsSuspendedWhileAMenuTracks() {
         let panel = BobukPanel(kind: .floating)
         var reasons: [BobukPanel.DismissReason] = []
         panel.onDismiss = { reasons.append($0); panel.orderOut(nil) }
         panel.orderBack(nil)
         panel.suspendDismissal()
         panel.resignKey()
-        #expect(reasons.isEmpty)
+        XCTAssert(reasons.isEmpty)
         panel.resumeDismissal()
         panel.resignKey()
         panel.orderBack(nil)
         panel.cancelOperation(nil)
-        #expect(reasons.contains(.resignedKey) || reasons.contains(.escape))
-        #expect(reasons.last == .escape)
+        XCTAssert(reasons.contains(.resignedKey) || reasons.contains(.escape))
+        XCTAssertEqual(reasons.last, .escape)
     }
 
-    @Test func commandKeysAreRoutedAndSwallowed() {
+    func testCommandKeysAreRoutedAndSwallowed() {
         let panel = BobukPanel(kind: .launcher)
         var seen: [EditCommand] = []
         panel.onCommandKey = { _, command in seen.append(command); return command == .commandReturn }
@@ -209,52 +211,53 @@ import Testing
             NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
                              characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code)!
         }
-        #expect(panel.performKeyEquivalent(with: event("q", 12)))      // ⌘Q swallowed
-        #expect(!panel.performKeyEquivalent(with: event("", 123)))     // ⌘← to the editor
-        #expect(panel.performKeyEquivalent(with: event("\r", 36)))     // ⌘↩ handled by the app
-        #expect(seen == [.other, .editor, .commandReturn])
+        XCTAssert(panel.performKeyEquivalent(with: event("q", 12)))      // ⌘Q swallowed
+        XCTAssert(!panel.performKeyEquivalent(with: event("", 123)))     // ⌘← to the editor
+        XCTAssert(panel.performKeyEquivalent(with: event("\r", 36)))     // ⌘↩ handled by the app
+        XCTAssertEqual(seen, [.other, .editor, .commandReturn])
         // Panels with their own SwiftUI shortcuts let other ⌘ keys through.
         panel.swallowsOtherCommandKeys = false
-        #expect(!panel.performKeyEquivalent(with: event("q", 12)))
-        #expect(panel.routesEditCommands)
+        XCTAssert(!panel.performKeyEquivalent(with: event("q", 12)))
+        XCTAssert(panel.routesEditCommands)
     }
 }
 
-@Suite struct EditCommandTests {
-    @Test func classification() {
-        #expect(EditCommand.classify(keyCode: 9, latin: "v", flags: .command) == .text(#selector(NSText.paste(_:))))
-        #expect(EditCommand.classify(keyCode: 6, latin: "z", flags: [.command, .shift]) == .text(Selector(("redo:"))))
-        #expect(EditCommand.classify(keyCode: 13, latin: "w", flags: .command) == .close)
-        #expect(EditCommand.classify(keyCode: 12, latin: "q", flags: .command) == .other)
-        #expect(EditCommand.classify(keyCode: 36, latin: nil, flags: .command) == .commandReturn)
-        #expect(EditCommand.classify(keyCode: 36, latin: nil, flags: [.command, .shift]) == .other)
-        #expect(EditCommand.classify(keyCode: 51, latin: nil, flags: [.command, .option]) == .editor)
-        #expect(EditCommand.classify(keyCode: 9, latin: "v", flags: []) == .notCommand)
+final class EditCommandTests: XCTestCase {
+    func testClassification() {
+        XCTAssertEqual(EditCommand.classify(keyCode: 9, latin: "v", flags: .command), .text(#selector(NSText.paste(_:))))
+        XCTAssertEqual(EditCommand.classify(keyCode: 6, latin: "z", flags: [.command, .shift]), .text(Selector(("redo:"))))
+        XCTAssertEqual(EditCommand.classify(keyCode: 13, latin: "w", flags: .command), .close)
+        XCTAssertEqual(EditCommand.classify(keyCode: 12, latin: "q", flags: .command), .other)
+        XCTAssertEqual(EditCommand.classify(keyCode: 36, latin: nil, flags: .command), .commandReturn)
+        XCTAssertEqual(EditCommand.classify(keyCode: 36, latin: nil, flags: [.command, .shift]), .other)
+        XCTAssertEqual(EditCommand.classify(keyCode: 51, latin: nil, flags: [.command, .option]), .editor)
+        XCTAssertEqual(EditCommand.classify(keyCode: 9, latin: "v", flags: []), .notCommand)
         // The physical V key typed with a Cyrillic layout still pastes: the router gets "v".
-        #expect(EditCommand.classify(keyCode: 9, latin: "v", flags: [.command, .capsLock]) == .text(#selector(NSText.paste(_:))))
+        XCTAssertEqual(EditCommand.classify(keyCode: 9, latin: "v", flags: [.command, .capsLock]), .text(#selector(NSText.paste(_:))))
     }
 }
 
-@Suite struct GlyphTests {
-    @Test func everyGlyphHasAnOutlineInsideItsBox() {
+final class GlyphTests: XCTestCase {
+    func testEveryGlyphHasAnOutlineInsideItsBox() {
         let box = CGRect(x: 0, y: 0, width: 16, height: 16)
         for glyph in Glyph.allCases {
             let bounds = glyph.path(in: box).boundingBoxOfPath
-            #expect(!bounds.isNull && bounds.width + bounds.height > 1, "\(glyph)")
-            #expect(box.insetBy(dx: -1, dy: -1).contains(bounds), "\(glyph)")
+            XCTAssert(!bounds.isNull && bounds.width + bounds.height > 1, "\(glyph)")
+            XCTAssert(box.insetBy(dx: -1, dy: -1).contains(bounds), "\(glyph)")
         }
-        #expect(Glyph.close.isDestructive && Glyph.terminate.isDestructive && !Glyph.back.isDestructive)
-        #expect(Glyph.lineWidth(for: CGRect(x: 0, y: 0, width: 8, height: 8)) == 0.8)
+        XCTAssert(Glyph.close.isDestructive && Glyph.terminate.isDestructive && !Glyph.back.isDestructive)
+        XCTAssertEqual(Glyph.lineWidth(for: CGRect(x: 0, y: 0, width: 8, height: 8)), 0.8)
     }
 
-    @Test func paletteHelpers() {
+    func testPaletteHelpers() {
         let color = NSColor(hex: 0x885500).usingColorSpace(.sRGB)!
-        #expect(abs(color.redComponent - 0x88 / 255.0) < 0.001)
-        #expect(AppearanceChoice.light.appearance?.name == .aqua)
-        #expect(AppearanceChoice.system.appearance == nil)
+        XCTAssert(abs(color.redComponent - 0x88 / 255.0) < 0.001)
+        XCTAssertEqual(AppearanceChoice.light.appearance?.name, .aqua)
+        XCTAssertEqual(AppearanceChoice.system.appearance, nil)
         let suite = UserDefaults(suiteName: "bobukkit-appearance-\(UUID().uuidString)")!
-        #expect(AppearanceChoice.stored(in: suite, key: "theme", fallback: .dark) == .dark)
+        XCTAssertEqual(AppearanceChoice.stored(in: suite, key: "theme", fallback: .dark), .dark)
         suite.set("light", forKey: "theme")
-        #expect(AppearanceChoice.stored(in: suite, key: "theme") == .light)
+        XCTAssertEqual(AppearanceChoice.stored(in: suite, key: "theme"), .light)
     }
 }
+#endif

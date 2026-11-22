@@ -1,11 +1,12 @@
+#if canImport(AppKit)
 // The floating panel of every bobuk-io app (Ting's selecta/launcha/Clipbawd, Splash Finish's inbox,
 // HAScS's scenes, lowkey's ⌘L prompt). One place for the NSPanel flags, closing on focus loss with
 // a suspension while a menu tracks, Esc and ⌘W, and edit-command routing in non-activating panels.
 import AppKit
 import BobukCore
 
-@MainActor open class BobukPanel: NSPanel, Sendable {
-    public enum Kind: Sendable {
+open class BobukPanel: NSPanel {
+    public enum Kind {
         /// Above everything, on every Space and over full-screen apps, never in the window cycle;
         /// non-activating. Ting's leader menu, launcha, Clipbawd and micro-app flows.
         case launcher
@@ -18,7 +19,7 @@ import BobukCore
         case hud
     }
 
-    public enum DismissReason: Equatable, Sendable {
+    public enum DismissReason: Equatable {
         case resignedKey, escape, commandW, appDeactivated, programmatic
     }
 
@@ -43,7 +44,7 @@ import BobukCore
     public var onCommandKey: ((NSEvent, EditCommand) -> Bool)?
     public private(set) var isDismissalSuspended = false
     private var deactivationObserver: NSObjectProtocol?
-    nonisolated(unsafe) private var themeObserver: NSObjectProtocol?
+    private var themeObserver: NSObjectProtocol?
 
     public init(contentRect: NSRect = NSRect(x: 0, y: 0, width: 480, height: 320), kind: Kind) {
         self.kind = kind
@@ -64,7 +65,10 @@ import BobukCore
         isReleasedWhenClosed = false
         animationBehavior = .none
         switch kind {
-        case .launcher, .hud:
+        case .launcher:
+            level = .popUpMenu
+            collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        case .hud:
             level = .popUpMenu
             collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         case .floating:
@@ -80,32 +84,30 @@ import BobukCore
         }
         deactivationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.dismissesOnAppDeactivation, self.isVisible else { return }
+            guard let self = self else { return }
+            if self.dismissesOnAppDeactivation && self.isVisible {
                 self.dismiss(.appDeactivated)
             }
         }
     }
 
     deinit {
-        if let deactivationObserver { NotificationCenter.default.removeObserver(deactivationObserver) }
-        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+        if let deactivationObserver = deactivationObserver { NotificationCenter.default.removeObserver(deactivationObserver) }
+        if let themeObserver = themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
     }
 
     /// Keeps the panel's effective appearance synchronized with a `ThemeStore` (so native controls
     /// and tooltips inside a custom-colored surface always match its luminance).
     public func bindTheme(_ theme: ThemeStore) {
-        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+        if let themeObserver = themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
         appearance = theme.chromeAppearance
         themeObserver = NotificationCenter.default.addObserver(
             forName: ThemeStore.didChangeNotification,
             object: theme,
             queue: .main
         ) { [weak self, weak theme] _ in
-            MainActor.assumeIsolated {
-                guard let self, let theme else { return }
-                self.appearance = theme.chromeAppearance
-            }
+            guard let self = self, let theme = theme else { return }
+            self.appearance = theme.chromeAppearance
         }
     }
 
@@ -114,7 +116,11 @@ import BobukCore
 
     /// Closes the panel the way the app wants (`onDismiss`), or orders it out.
     public func dismiss(_ reason: DismissReason = .programmatic) {
-        if let onDismiss { onDismiss(reason) } else { orderOut(nil) }
+        if let onDismiss = onDismiss {
+            onDismiss(reason)
+        } else {
+            orderOut(nil)
+        }
     }
 
     /// While a menu (a context menu, a popover) tracks over the panel, losing key status must
@@ -125,7 +131,16 @@ import BobukCore
     public func resumeDismissal() {
         isDismissalSuspended = false
         guard isVisible else { return }
-        if let key = NSApp.keyWindow, key !== self { dismiss(.resignedKey) } else { makeKeyAndOrderFront(nil) }
+        // NSApplication.shared, not the NSApp shortcut: the shared app may not exist yet in a
+        // bare test host, and NSApp would trap on its implicit unwrap.
+        let app = NSApplication.shared
+        if let key = app.keyWindow, key !== self {
+            dismiss(.resignedKey)
+        } else {
+            if app.windows.contains(where: { $0 === self }) {
+                makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     open override func resignKey() {
@@ -141,22 +156,23 @@ import BobukCore
     open override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let command = EditCommand.classify(event)
-        if onCommandKey?(event, command) == true { return true }
+        if let onCommandKey = onCommandKey, onCommandKey(event, command) == true { return true }
         switch command {
         case .notCommand:
             return super.performKeyEquivalent(with: event)
         case .editor:
-            // Return false at once so the event reaches the text field's keyDown.
             return false
         case .close where dismissesOnCommandW:
             dismiss(.commandW)
             return true
         case .text(let selector) where routesEditCommands:
             if EditCommand.send(selector, in: self) { return true }
-            return swallowsOtherCommandKeys ? true : super.performKeyEquivalent(with: event)
+            if swallowsOtherCommandKeys { return true }
+            return super.performKeyEquivalent(with: event)
         case .close, .text, .commandReturn, .other:
             if super.performKeyEquivalent(with: event) { return true }
             return swallowsOtherCommandKeys
         }
     }
 }
+#endif

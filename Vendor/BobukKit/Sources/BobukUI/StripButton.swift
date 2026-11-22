@@ -1,10 +1,11 @@
+#if canImport(AppKit)
 // A tiny icon button for a window strip, from lowkey's GlyphButton: hover and press backgrounds,
 // red hover for destructive glyphs, click modifiers for the action (⌘-click), first-mouse clicks
 // and button accessibility. Window controls go here, never into the window's content.
 import AppKit
 
-@MainActor public final class StripButton: NSView {
-    public enum Role: Sendable {
+public final class StripButton: NSView {
+    public enum Role {
         /// Destructive for `.close` and `.terminate`, normal otherwise.
         case automatic, normal, destructive
     }
@@ -42,14 +43,14 @@ import AppKit
     var resolvedStyle: ChromeStyle { style ?? (window as? ChromeWindow)?.chromeStyle ?? .system }
     var isDestructive: Bool {
         switch role {
-        case .automatic: glyph.isDestructive
-        case .normal: false
-        case .destructive: true
+        case .automatic: return glyph.isDestructive
+        case .normal: return false
+        case .destructive: return true
         }
     }
 
     public override func updateTrackingAreas() {
-        if let trackingArea { removeTrackingArea(trackingArea) }
+        if let trackingArea = trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
@@ -114,3 +115,4 @@ import AppKit
         onPress?(modifiers)
     }
 }
+#endif

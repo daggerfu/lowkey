@@ -1,10 +1,10 @@
-// Helpers for tests of bobuk-io apps. Independent of the test framework (XCTest or Swift Testing):
-// nothing here asserts. Every helper works in a fresh temporary folder, never in real data.
+// Helpers for tests of bobuk-io apps. Independent of XCTest: nothing here asserts.
+// Every helper works in a fresh temporary folder, never in real data.
 import BobukCore
 import Foundation
 
 /// A fresh folder under the temporary directory, removed by `remove()` or on deinit.
-public final class TemporaryDirectory: @unchecked Sendable {
+public final class TemporaryDirectory {
     public let url: URL
 
     public init(prefix: String = "bobukkit-test") throws {
@@ -26,10 +26,10 @@ public final class TemporaryDirectory: @unchecked Sendable {
     /// Writes an executable `/bin/sh` script at `path` and returns it.
     @discardableResult
     public func executable(_ path: String, script: String) throws -> URL {
-        let file = try file(path)
-        try ("#!/bin/sh\n" + script + "\n").write(to: file, atomically: false, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
-        return file
+        let fileURL = try file(path)
+        try ("#!/bin/sh\n" + script + "\n").write(to: fileURL, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
+        return fileURL
     }
 
     /// A minimal `X.app` with `Contents/Info.plist` and an executable `Contents/MacOS/<executable>`.

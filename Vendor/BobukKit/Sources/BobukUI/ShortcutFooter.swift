@@ -1,3 +1,5 @@
+#if canImport(AppKit)
+import AppKit
 import SwiftUI
 
 public struct ShortcutHint: Hashable, Identifiable {
@@ -16,6 +18,7 @@ public struct ShortcutFooter: View {
     private let settingsLabel: String
     private let settingsHelp: String
     private let onSettings: (() -> Void)?
+    @State private var availableWidth: CGFloat = 0
 
     public init(_ hints: [ShortcutHint],
                 palette: PickerPalette,
@@ -29,30 +32,79 @@ public struct ShortcutFooter: View {
         self.onSettings = onSettings
     }
 
+    private var resolvedWidth: CGFloat { availableWidth > 0 ? availableWidth : .infinity }
+
     public var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            HintFlowLayout {
-                ForEach(hints) { hint in
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(hint.keys).fontWeight(.medium).fixedSize()
-                            .foregroundStyle(Color(nsColor: palette.text))
-                        Text(hint.action).fixedSize(horizontal: false, vertical: true)
-                            .foregroundStyle(Color(nsColor: palette.secondary))
-                    }
-                    .font(.system(size: PickerMetrics.footerFontSize, design: .monospaced))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(hint.keys): \(hint.action)")
+            ZStack(alignment: .topLeading) {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: HintWidthKey.self, value: geometry.size.width)
                 }
+                hintStack(width: resolvedWidth)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: stackHeight(width: resolvedWidth))
+            .onPreferenceChange(HintWidthKey.self) { width in availableWidth = width }
             .accessibilityElement(children: .contain)
 
-            if let onSettings {
+            if let onSettings = onSettings {
                 GlyphButton(.settings, label: settingsLabel, help: settingsHelp, palette: palette,
                             width: 22, height: 22, glyphSize: 13, action: onSettings)
             }
         }
     }
+
+    private func hintStack(width: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(placements(width: width)) { placement in
+                hintView(placement.hint)
+                    .frame(width: placement.size.width, height: placement.size.height, alignment: .topLeading)
+                    .offset(x: placement.frame.minX, y: placement.frame.minY)
+            }
+        }
+    }
+
+    private func hintView(_ hint: ShortcutHint) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(hint.keys)
+                .font(.system(size: PickerMetrics.footerFontSize, weight: .medium, design: .monospaced))
+                .fixedSize()
+                .foregroundColor(Color(palette.text))
+            Text(hint.action)
+                .font(.system(size: PickerMetrics.footerFontSize, design: .monospaced))
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundColor(Color(palette.secondary))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibility(label: Text("\(hint.keys): \(hint.action)"))
+    }
+
+    private func placements(width: CGFloat) -> [HintPlacement] {
+        let sizes = hints.map { HintPacking.size(for: $0) }
+        let frames = HintPacking.frames(sizes: sizes, width: width)
+        var result: [HintPlacement] = []
+        for (index, hint) in hints.enumerated() {
+            result.append(HintPlacement(index: index, hint: hint, size: sizes[index], frame: frames[index]))
+        }
+        return result
+    }
+
+    private func stackHeight(width: CGFloat) -> CGFloat {
+        placements(width: width).map { $0.frame.maxY }.max() ?? 0
+    }
+}
+
+private struct HintPlacement: Identifiable {
+    let index: Int
+    let hint: ShortcutHint
+    let size: CGSize
+    let frame: CGRect
+    var id: Int { index }
+}
+
+private struct HintWidthKey: PreferenceKey {
+    typealias Value = CGFloat
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Deterministic geometry, also used by tests without presenting a window.
@@ -73,29 +125,15 @@ enum HintPacking {
             return frame
         }
     }
-}
 
-private struct HintFlowLayout: Layout {
-    private func frames(width: CGFloat?, subviews: Subviews) -> [CGRect] {
-        let sizes = subviews.map { view in
-            let ideal = view.sizeThatFits(.unspecified)
-            guard let width, width.isFinite else { return ideal }
-            return view.sizeThatFits(ProposedViewSize(width: min(ideal.width, max(0, width)), height: nil))
-        }
-        return HintPacking.frames(sizes: sizes, width: width ?? .infinity)
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let frames = frames(width: proposal.width, subviews: subviews)
-        return CGSize(width: proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? frames.map(\.maxX).max() ?? 0,
-                      height: frames.map(\.maxY).max() ?? 0)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let frames = frames(width: bounds.width, subviews: subviews)
-        for (view, frame) in zip(subviews, frames) {
-            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
-                       anchor: .topLeading, proposal: ProposedViewSize(frame.size))
-        }
+    /// Ideal size of one shortcut group at the footer's monospaced font.
+    static func size(for hint: ShortcutHint) -> CGSize {
+        let medium = NSFont.monospacedSystemFont(ofSize: PickerMetrics.footerFontSize, weight: .medium)
+        let regular = NSFont.monospacedSystemFont(ofSize: PickerMetrics.footerFontSize, weight: .regular)
+        let keysWidth = ceil((hint.keys as NSString).size(withAttributes: [.font: medium]).width)
+        let actionWidth = ceil((hint.action as NSString).size(withAttributes: [.font: regular]).width)
+        let lineHeight = ceil(max(medium.boundingRectForFont.height, regular.boundingRectForFont.height))
+        return CGSize(width: keysWidth + 4 + actionWidth, height: lineHeight)
     }
 }
+#endif

@@ -18,6 +18,11 @@ BobukKit is the shared library of the native bobuk-io apps. It travels into ever
   Cyrillic layouts.
 - **Kit code is generic.** No app names, bundle IDs, colors of one app or strings of one app in
   the kit; pass them as parameters (`AppUpdateIdentity`, `PickerPalette`, `ChromeStyle`).
+- **Portability.** Sources stay Swift 5.3 / macOS 10.15 SDK. Darwin-only APIs are behind
+  `#if canImport(Darwin)` with a Linux counterpart; AppKit/SwiftUI files are wrapped in
+  `#if canImport(AppKit)` and compile to empty modules on Linux. On Linux `MessagePort` uses a
+  Unix domain socket and `FileWatcher` polls modification stamps; `BobukCore` plus
+  `FileWatcher`/`HotkeyRecordingGate` of `BobukSystem` build and test on Ubuntu as well as macOS.
 - **Tests:** every kit change has tests in `Tests/`. Tests never register real global hotkeys,
   write real Keychain items, run real `brew`, activate the app or show windows on screen.
 - After a kit change: `swift test`, `swift run BobukUIGallery <dir>` and look at the PNGs,

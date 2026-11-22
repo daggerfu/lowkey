@@ -1,9 +1,9 @@
+#if canImport(AppKit)
 import AppKit
 import SwiftUI
 import XCTest
 @testable import BobukUI
 
-@MainActor
 final class PickerSearchFieldTests: XCTestCase {
     private let palette = PickerPalette(surface: .white, text: .black, secondary: .darkGray,
                                        accent: .systemOrange, border: .gray, badgeInk: .black)
@@ -40,7 +40,7 @@ final class PickerSearchFieldTests: XCTestCase {
         XCTAssertEqual(hosting.fittingSize.height, PickerMetrics.searchFieldHeight, accuracy: 0.5)
     }
 
-    func testProgrammaticUpdatesKeepNativeFieldAndRefreshBinding() async throws {
+    func testProgrammaticUpdatesKeepNativeFieldAndRefreshBinding() throws {
         var first = "first"
         var second = "second"
         func view(_ binding: Binding<String>) -> some View {
@@ -56,7 +56,7 @@ final class PickerSearchFieldTests: XCTestCase {
         let field = try XCTUnwrap(descendants(hosting).first { $0 is NSSearchField } as? NSSearchField)
         hosting.rootView = view(Binding(get: { second }, set: { second = $0 }))
         hosting.layoutSubtreeIfNeeded()
-        await Task.yield()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(field.stringValue, "second")
         field.stringValue = "updated"
         field.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
@@ -66,3 +66,4 @@ final class PickerSearchFieldTests: XCTestCase {
 
     private func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 }
+#endif

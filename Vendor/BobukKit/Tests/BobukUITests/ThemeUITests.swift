@@ -1,50 +1,51 @@
+#if canImport(AppKit)
 import AppKit
 import BobukCore
 import BobukTestSupport
 import SwiftUI
-import Testing
+import XCTest
 @testable import BobukUI
 
-@MainActor @Suite(.serialized) struct ThemeUITests {
-    @Test func themeStorePersistsAppearanceAndPalettePerApp() {
+final class ThemeUITests: XCTestCase {
+    func testThemeStorePersistsAppearanceAndPalettePerApp() {
         let (defaults, suite) = IsolatedDefaults.make()
         defer { IsolatedDefaults.remove(suite) }
         let keys = ThemeStore.StorageKeys(appearance: "appTheme", palette: "appThemePalette")
 
         let first = ThemeStore(defaults: defaults, keys: keys, defaultAppearance: .dark,
                                defaultPreset: .amber, appliesToApplication: false)
-        #expect(first.appearance == .dark)
-        #expect(first.isDark)
-        #expect(first.colors == ThemePreset.amber.colors(dark: true))
-        #expect(first.isDefaultPalette)
+        XCTAssertEqual(first.appearance, .dark)
+        XCTAssert(first.isDark)
+        XCTAssertEqual(first.colors, ThemePreset.amber.colors(dark: true))
+        XCTAssert(first.isDefaultPalette)
 
         first.applyPreset(ThemePreset.named("kanagawa")!)
-        #expect(!first.isDefaultPalette)
-        #expect(first.colors.preset == "kanagawa")
-        #expect(first.colors(dark: false).preset == "kanagawa")
+        XCTAssert(!first.isDefaultPalette)
+        XCTAssertEqual(first.colors.preset, "kanagawa")
+        XCTAssertEqual(first.colors(dark: false).preset, "kanagawa")
 
         first.appearance = .light
-        #expect(!first.isDark)
-        #expect(first.colors == ThemePreset.named("kanagawa")!.colors(dark: false))
+        XCTAssert(!first.isDark)
+        XCTAssertEqual(first.colors, ThemePreset.named("kanagawa")!.colors(dark: false))
 
         first.setAccent(RGB(hex: 0xC72566), dark: false)
-        #expect(first.colors.preset == ThemeColors.customPresetID)
-        #expect(first.colors.accent == "#c72566")
+        XCTAssertEqual(first.colors.preset, ThemeColors.customPresetID)
+        XCTAssertEqual(first.colors.accent, "#c72566")
 
         // Reloading from the same defaults preserves both appearance and custom palette.
         let reloaded = ThemeStore(defaults: defaults, keys: keys, defaultAppearance: .dark,
                                   defaultPreset: .amber, appliesToApplication: false)
-        #expect(reloaded.appearance == .light)
-        #expect(reloaded.colors.preset == ThemeColors.customPresetID)
-        #expect(reloaded.colors.accent == "#c72566")
-        #expect(reloaded.colors(dark: true).preset == "kanagawa")
+        XCTAssertEqual(reloaded.appearance, .light)
+        XCTAssertEqual(reloaded.colors.preset, ThemeColors.customPresetID)
+        XCTAssertEqual(reloaded.colors.accent, "#c72566")
+        XCTAssertEqual(reloaded.colors(dark: true).preset, "kanagawa")
 
         reloaded.resetPalette()
-        #expect(reloaded.isDefaultPalette)
-        #expect(reloaded.colors == ThemePreset.amber.colors(dark: false))
+        XCTAssert(reloaded.isDefaultPalette)
+        XCTAssertEqual(reloaded.colors, ThemePreset.amber.colors(dark: false))
     }
 
-    @Test func themeStoreHonorsLegacyAppearanceKey() {
+    func testThemeStoreHonorsLegacyAppearanceKey() {
         let (defaults, suite) = IsolatedDefaults.make()
         defer { IsolatedDefaults.remove(suite) }
         defaults.set("light", forKey: "appTheme")
@@ -52,11 +53,11 @@ import Testing
                                keys: .init(appearance: "appTheme", palette: "appThemePalette"),
                                defaultAppearance: .dark,
                                appliesToApplication: false)
-        #expect(store.appearance == .light)
-        #expect(store.colors == ThemePreset.amber.colors(dark: false))
+        XCTAssertEqual(store.appearance, .light)
+        XCTAssertEqual(store.colors, ThemePreset.amber.colors(dark: false))
     }
 
-    @Test func chromeWindowAndPanelFollowLiveThemeChanges() {
+    func testChromeWindowAndPanelFollowLiveThemeChanges() {
         _ = NSApplication.shared
         let (defaults, suite) = IsolatedDefaults.make()
         defer { IsolatedDefaults.remove(suite) }
@@ -65,26 +66,26 @@ import Testing
         let panel = BobukPanel(kind: .floating)
         panel.bindTheme(store)
 
-        #expect(window.chromeStyle.accent.rgb == RGB(hex: 0xE7BB74))
-        #expect(window.appearance?.name == .darkAqua)
-        #expect(panel.appearance?.name == .darkAqua)
+        XCTAssertEqual(window.chromeStyle.accent.rgb, RGB(hex: 0xE7BB74))
+        XCTAssertEqual(window.appearance?.name, .darkAqua)
+        XCTAssertEqual(panel.appearance?.name, .darkAqua)
 
         store.applyPreset(ThemePreset.named("catppuccin")!)
-        #expect(window.chromeStyle.accent.rgb == RGB(hex: 0xCBA6F7))
-        #expect(window.chromeStyle.panel.rgb == RGB(hex: 0x1E1E2E))
+        XCTAssertEqual(window.chromeStyle.accent.rgb, RGB(hex: 0xCBA6F7))
+        XCTAssertEqual(window.chromeStyle.panel.rgb, RGB(hex: 0x1E1E2E))
 
         store.appearance = .light
-        #expect(window.chromeStyle.panel.rgb == RGB(hex: 0xEFF1F5))
-        #expect(window.appearance?.name == .aqua)
-        #expect(panel.appearance?.name == .aqua)
+        XCTAssertEqual(window.chromeStyle.panel.rgb, RGB(hex: 0xEFF1F5))
+        XCTAssertEqual(window.appearance?.name, .aqua)
+        XCTAssertEqual(panel.appearance?.name, .aqua)
 
         // A dark custom panel in Light mode flips chromeAppearance to darkAqua so controls stay readable.
         store.setPanel(RGB(hex: 0x100F0F), dark: false)
-        #expect(window.appearance?.name == .darkAqua)
-        #expect(panel.appearance?.name == .darkAqua)
+        XCTAssertEqual(window.appearance?.name, .darkAqua)
+        XCTAssertEqual(panel.appearance?.name, .darkAqua)
     }
 
-    @Test func themeSettingsSectionHostsCleanly() {
+    func testThemeSettingsSectionHostsCleanly() {
         _ = NSApplication.shared
         let (defaults, suite) = IsolatedDefaults.make()
         defer { IsolatedDefaults.remove(suite) }
@@ -99,11 +100,11 @@ import Testing
         let host = ChromeWindow.hosting(view)
         host.setFrameSize(NSSize(width: 440, height: 340))
         host.layoutSubtreeIfNeeded()
-        #expect(host.frame.width == 440)
-        #expect(host.frame.height == 340)
+        XCTAssertEqual(host.frame.width, 440)
+        XCTAssertEqual(host.frame.height, 340)
     }
 
-    @Test func themeStoreSetsExtendedColorRolesAndAutoResets() {
+    func testThemeStoreSetsExtendedColorRolesAndAutoResets() {
         let (defaults, suite) = IsolatedDefaults.make()
         defer { IsolatedDefaults.remove(suite) }
         let keys = ThemeStore.StorageKeys(appearance: "appTheme", palette: "appThemePalette")
@@ -115,45 +116,45 @@ import Testing
         store.setColor(RGB(hex: 0x223344), for: .selection, dark: true)
         store.setColor(RGB(hex: 0xFF4466), for: .danger, dark: true)
 
-        #expect(store.colors.preset == ThemeColors.customPresetID)
-        #expect(store.tokens.ink == RGB(hex: 0xDDEEFF))
-        #expect(store.tokens.link == RGB(hex: 0x33AAFF))
-        #expect(store.tokens.selection == RGB(hex: 0x223344))
-        #expect(store.tokens.danger == RGB(hex: 0xFF4466))
-        #expect(store.pickerPalette.selection.rgb == RGB(hex: 0x223344))
-        #expect(store.pickerPalette.link.rgb == RGB(hex: 0x33AAFF))
-        #expect(store.chromeStyle.destructiveHover?.rgb == RGB(hex: 0xFF4466))
+        XCTAssertEqual(store.colors.preset, ThemeColors.customPresetID)
+        XCTAssertEqual(store.tokens.ink, RGB(hex: 0xDDEEFF))
+        XCTAssertEqual(store.tokens.link, RGB(hex: 0x33AAFF))
+        XCTAssertEqual(store.tokens.selection, RGB(hex: 0x223344))
+        XCTAssertEqual(store.tokens.danger, RGB(hex: 0xFF4466))
+        XCTAssertEqual(store.pickerPalette.selection.rgb, RGB(hex: 0x223344))
+        XCTAssertEqual(store.pickerPalette.link.rgb, RGB(hex: 0x33AAFF))
+        XCTAssertEqual(store.chromeStyle.destructiveHover?.rgb, RGB(hex: 0xFF4466))
 
         let reloaded = ThemeStore(defaults: defaults, keys: keys, defaultAppearance: .dark,
                                   defaultPreset: .amber, appliesToApplication: false)
-        #expect(reloaded.colors.link == "#33aaff")
-        #expect(reloaded.colors.selection == "#223344")
-        #expect(reloaded.tokens.danger == RGB(hex: 0xFF4466))
+        XCTAssertEqual(reloaded.colors.link, "#33aaff")
+        XCTAssertEqual(reloaded.colors.selection, "#223344")
+        XCTAssertEqual(reloaded.tokens.danger, RGB(hex: 0xFF4466))
 
         // Resetting a role to nil clears the override and falls back to the auto-derived color.
         reloaded.setColor(nil, for: .link, dark: true)
-        #expect(reloaded.colors.link == nil)
-        #expect(reloaded.tokens.link == reloaded.tokens.accent)
+        XCTAssertEqual(reloaded.colors.link, nil)
+        XCTAssertEqual(reloaded.tokens.link, reloaded.tokens.accent)
     }
 
-    @Test func themeSettingsFormRowsHostsCleanly() {
+    func testThemeSettingsFormRowsHostsCleanly() {
         _ = NSApplication.shared
         let (defaults, suite) = IsolatedDefaults.make()
         defer { IsolatedDefaults.remove(suite) }
         let store = ThemeStore(defaults: defaults, defaultAppearance: .dark, appliesToApplication: false)
-        let view = Form {
-            Section("Appearance") {
-                ThemeSettingsFormRows(theme: store)
-            }
+        // Form/Section are macOS 11; a plain VStack hosts the rows on Catalina too.
+        let view = VStack {
+            Text("Appearance")
+            ThemeSettingsFormRows(theme: store)
         }
-        .formStyle(.grouped)
         .themedSurface(store)
         .frame(width: 480, height: 420)
 
         let host = ChromeWindow.hosting(view)
         host.setFrameSize(NSSize(width: 480, height: 420))
         host.layoutSubtreeIfNeeded()
-        #expect(host.frame.width == 480)
-        #expect(host.frame.height == 420)
+        XCTAssertEqual(host.frame.width, 480)
+        XCTAssertEqual(host.frame.height, 420)
     }
 }
+#endif

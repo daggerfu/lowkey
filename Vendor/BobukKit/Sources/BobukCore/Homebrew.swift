@@ -4,7 +4,7 @@
 import Foundation
 
 /// One app's cask in the bobuk-io tap.
-public struct HomebrewCask: Equatable, Sendable {
+public struct HomebrewCask: Equatable {
     /// Cask name, such as `ting` or `splash-finish`.
     public var name: String
     /// Fully qualified token, such as `bobuk-io/tap/ting`.
@@ -20,7 +20,7 @@ public struct HomebrewCask: Equatable, Sendable {
 }
 
 /// An app that a Caskroom record of its cask points to.
-public struct HomebrewInstall: Equatable, Sendable {
+public struct HomebrewInstall: Equatable {
     /// The Homebrew prefix that owns the record, such as `/opt/homebrew`.
     public let prefix: URL
     /// `<prefix>/Caskroom/<cask>/<version>/<App>.app`, a symlink or a copy.
@@ -78,13 +78,14 @@ public enum HomebrewDetection {
             let match = versions.filter { !$0.hasPrefix(".") }.sorted().compactMap { version -> URL? in
                 let record = caskroom.appendingPathComponent(version).appendingPathComponent(cask.appBundleName)
                 var isFolder: ObjCBool = false
-                guard fileManager.fileExists(atPath: record.path, isDirectory: &isFolder), isFolder.boolValue,
-                      resolved(record) == target else { return nil }
+                guard fileManager.fileExists(atPath: record.path, isDirectory: &isFolder) else { return nil }
+                if !isFolder.boolValue { return nil }
+                if resolved(record) != target { return nil }
                 return record
             }.last
-            guard let match else { continue }
+            guard let matched = match else { continue }
             guard fileManager.isExecutableFile(atPath: prefix.appendingPathComponent("bin/brew").path) else { return nil }
-            found.append(HomebrewInstall(prefix: prefix, record: match, app: bundle.standardizedFileURL, cask: cask))
+            found.append(HomebrewInstall(prefix: prefix, record: matched, app: bundle.standardizedFileURL, cask: cask))
         }
         return found.count == 1 ? found[0] : nil
     }
@@ -95,7 +96,7 @@ public enum HomebrewDetection {
 }
 
 /// The result of one Homebrew update.
-public enum HomebrewUpdateOutcome: Equatable, Sendable {
+public enum HomebrewUpdateOutcome: Equatable {
     case upgraded
     case upToDate
     case failed(exitCode: Int32, output: String)
@@ -149,14 +150,14 @@ public enum HomebrewUpdate {
 }
 
 /// Who updates this copy of the app.
-public enum UpdaterChoice: Equatable, Sendable {
+public enum UpdaterChoice: Equatable {
     case homebrew(HomebrewInstall)
     case sparkle
     /// A development build without a feed: no updates.
     case none
 
     public static func choose(homebrew: HomebrewInstall?, hasFeed: Bool, hasKey: Bool) -> UpdaterChoice {
-        if let homebrew { return .homebrew(homebrew) }
+        if let install = homebrew { return .homebrew(install) }
         return hasFeed && hasKey ? .sparkle : .none
     }
 
@@ -168,7 +169,7 @@ public enum UpdaterChoice: Equatable, Sendable {
         let hasFeed = (info["SUFeedURL"] as? String)?.isEmpty == false
         let hasKey = (info["SUPublicEDKey"] as? String)?.isEmpty == false
         var homebrew: HomebrewInstall?
-        if hasFeed && hasKey, let cask, let bundle {
+        if hasFeed && hasKey, let cask = cask, let bundle = bundle {
             homebrew = HomebrewDetection.install(of: bundle, cask: cask,
                                                  prefixes: HomebrewDetection.prefixes(environment: environment))
         }

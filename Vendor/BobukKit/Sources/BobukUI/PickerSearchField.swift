@@ -1,9 +1,9 @@
+#if canImport(AppKit)
 import AppKit
 import SwiftUI
 
 /// Native single-line search input. Apps own filtering/results; the kit owns input geometry.
 /// No saved recents, automatic focus, key interception or search service.
-@MainActor
 public struct PickerSearchField: NSViewRepresentable {
     @Binding private var text: String
     private let placeholder: String
@@ -41,10 +41,6 @@ public struct PickerSearchField: NSViewRepresentable {
         update(field)
     }
 
-    public func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSearchField, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 200, height: PickerMetrics.searchFieldHeight)
-    }
-
     private func update(_ field: NSSearchField) {
         if field.stringValue != text { field.stringValue = text }
         field.textColor = palette.text
@@ -52,7 +48,6 @@ public struct PickerSearchField: NSViewRepresentable {
         field.setAccessibilityLabel(accessibilityLabel)
     }
 
-    @MainActor
     public final class Coordinator: NSObject, NSSearchFieldDelegate {
         fileprivate var parent: PickerSearchField
         fileprivate init(_ parent: PickerSearchField) { self.parent = parent }
@@ -68,3 +63,4 @@ public struct PickerSearchField: NSViewRepresentable {
         // Leave editing commands, cancel and Cmd-W in AppKit's normal responder chain.
     }
 }
+#endif

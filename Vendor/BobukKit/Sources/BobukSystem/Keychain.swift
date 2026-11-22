@@ -1,3 +1,4 @@
+#if canImport(Security)
 // One generic-password Keychain item, from HAScS's credential store. The Keychain decides the
 // access policy; no broad ACL is installed and the item never synchronizes through iCloud.
 import Foundation
@@ -19,7 +20,7 @@ public enum KeychainError: LocalizedError, Equatable {
     }
 }
 
-public struct KeychainItem: Sendable, Equatable {
+public struct KeychainItem: Equatable {
     public let service: String
     public let account: String
 
@@ -82,3 +83,4 @@ public struct KeychainItem: Sendable, Equatable {
 
     public func writeCodable<T: Encodable>(_ value: T) throws { try write(JSONEncoder().encode(value)) }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // Small SwiftUI controls repeated across apps: the quiet bordered button (Splash Finish "Snooze",
 // Ting dialogs), the mono tracked label and a glyph button for row actions (dismiss, remove).
 import SwiftUI
@@ -31,16 +32,22 @@ public struct QuietButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var enabled
 
         var body: some View {
-            let ink = Color(nsColor: palette.text)
-            let fill = Color(nsColor: prominentFill ?? palette.accent)
+            let ink = Color(palette.text)
+            let fill = Color(prominentFill ?? palette.accent)
             configuration.label
                 .font(.system(size: 12, weight: .medium))
                 .padding(.horizontal, 13)
                 .frame(height: height)
-                .foregroundStyle(prominent ? Color(nsColor: palette.badgeInk) : ink)
-                .background(prominent ? fill.opacity(configuration.isPressed ? 0.8 : 1)
-                                      : ink.opacity(configuration.isPressed ? 0.14 : 0.05),
-                            in: RoundedRectangle(cornerRadius: 6))
+                .foregroundColor(prominent ? Color(palette.badgeInk) : ink)
+                .background(
+                    Group {
+                        if prominent {
+                            RoundedRectangle(cornerRadius: 6).fill(fill.opacity(configuration.isPressed ? 0.8 : 1))
+                        } else {
+                            RoundedRectangle(cornerRadius: 6).fill(ink.opacity(configuration.isPressed ? 0.14 : 0.05))
+                        }
+                    }
+                )
                 .overlay(RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(ink.opacity(prominent ? 0 : contrast == .increased ? 0.35 : 0.1)))
                 .opacity(enabled ? 1 : 0.45)
@@ -108,14 +115,17 @@ public struct GlyphButton: View {
     public var body: some View {
         Button(action: action) {
             GlyphImage(glyph, size: glyphSize)
-                .foregroundStyle(Color(nsColor: hovering ? palette.text : palette.secondary))
+                .foregroundColor(Color(hovering ? palette.text : palette.secondary))
                 .frame(width: width, height: height)
-                .background(Color(nsColor: palette.text).opacity(hoverFill && hovering ? 0.1 : 0), in: RoundedRectangle(cornerRadius: 5))
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color(palette.text).opacity(hoverFill && hovering ? 0.1 : 0))
+                )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlainButtonStyle())
         .onHover { hovering = $0 }
-        .help(help ?? label)
-        .accessibilityLabel(label)
+        .accessibility(label: Text(label))
     }
 }
+#endif

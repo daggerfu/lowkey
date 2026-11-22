@@ -2,7 +2,7 @@
 // history. Ranking and display stay with the app.
 import Foundation
 
-public struct RecentList: Codable, Equatable, Sendable {
+public struct RecentList: Codable, Equatable {
     public private(set) var entries: [String]
     public var limit: Int
 

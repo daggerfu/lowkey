@@ -1,10 +1,11 @@
+#if canImport(AppKit)
 // A short message near the top of the screen with the pointer ("Safari: app not found"), from Ting.
 // Click-through, never activates the app, hides itself.
 import AppKit
 import SwiftUI
 import BobukCore
 
-@MainActor public final class ToastController {
+public final class ToastController {
     private var panel: BobukPanel?
     private var hideWork: DispatchWorkItem?
     private let staticPalette: PickerPalette
@@ -29,7 +30,7 @@ import BobukCore
 
     public func show(_ message: String, duration: TimeInterval = 3) {
         let panel = self.panel ?? BobukPanel(contentRect: .zero, kind: .hud)
-        if let theme { panel.appearance = theme.chromeAppearance }
+        if let theme = theme { panel.appearance = theme.chromeAppearance }
         self.panel = panel
         let palette = theme?.pickerPalette ?? staticPalette
         let hosting = NSHostingView(rootView: ToastView(message: message, palette: palette, mark: mark))
@@ -38,7 +39,8 @@ import BobukCore
         panel.orderFrontRegardless()
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.hide() }
+            guard let self = self else { return }
+            self.hide()
         }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
@@ -57,15 +59,16 @@ private struct ToastView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let mark { mark }
-            Text(message).font(.system(size: 12)).foregroundStyle(Color(nsColor: palette.text)).lineLimit(2)
+            if let mark = mark { mark }
+            Text(message).font(.system(size: 12)).foregroundColor(Color(palette.text)).lineLimit(2)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(maxWidth: 420)
-        .background(Color(nsColor: palette.surface), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color(nsColor: palette.border), lineWidth: 0.75))
+        .background(Capsule().fill(Color(palette.surface)))
+        .overlay(Capsule().strokeBorder(Color(palette.border), lineWidth: 0.75))
         .padding(12)
         .accessibilityElement(children: .combine)
     }
 }
+#endif

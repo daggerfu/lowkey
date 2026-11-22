@@ -1,11 +1,11 @@
-// swift-tools-version: 5.3
+// swift-tools-version:5.3
 import PackageDescription
 
-// Rewritten for the Swift 5.3 toolchain (Xcode 12): no `.swiftLanguageMode` setting and no
-// products/targets newer than tools-version 5.3. Note: the sources still use APIs from newer
-// SDKs (async/await, `MainActor.assumeIsolated`, the Testing library), so building requires a
-// compiler new enough to parse them; see README.
-
+// Swift 5.3 / Xcode 12 package manifest. The sources and tests use only Swift 5.3 language
+// features and macOS 10.15 SDK APIs: no concurrency annotations, Observation or Swift Testing.
+// BobukCore, BobukSystem (FileWatcher, HotkeyRecordingGate) and BobukTestSupport also build on
+// Linux: Darwin-only imports are behind `#if canImport(Darwin)` and the UI/update targets
+// compile to empty modules where AppKit is missing.
 let package = Package(
     name: "BobukKit",
     platforms: [.macOS(.v10_15)],
@@ -14,7 +14,6 @@ let package = Package(
         .library(name: "BobukCore", targets: ["BobukCore"]),
         // AppKit, Carbon, Security and ServiceManagement services.
         .library(name: "BobukSystem", targets: ["BobukSystem"]),
-        // Window shells, panels, strips, glyphs, palettes and picker components.
         .library(name: "BobukUI", targets: ["BobukUI"]),
         // Homebrew updates and the Sparkle seam. Sparkle itself stays in the app's Package.swift.
         .library(name: "BobukUpdates", targets: ["BobukUpdates"]),
@@ -31,6 +30,6 @@ let package = Package(
         .testTarget(name: "BobukSystemTests", dependencies: ["BobukSystem", "BobukTestSupport"]),
         .testTarget(name: "BobukUITests", dependencies: ["BobukUI", "BobukTestSupport"]),
         .testTarget(name: "BobukUpdatesTests", dependencies: ["BobukUpdates", "BobukTestSupport"]),
-        .executableTarget(name: "BobukUIGallery", dependencies: ["BobukUI", "BobukUpdates"], path: "Examples/Gallery"),
+        .target(name: "BobukUIGallery", dependencies: ["BobukUI", "BobukUpdates"], path: "Examples/Gallery"),
     ]
 )

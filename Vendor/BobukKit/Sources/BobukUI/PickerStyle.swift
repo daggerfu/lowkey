@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 
 /// Apps own their palette, including per-window appearance. The kit owns geometry.
@@ -41,7 +42,7 @@ public enum PickerMetrics {
 
     /// Compute once per list, not per row. All badges, including history, use this width.
     /// Long aliases truncate rather than pushing labels off-screen; the full alias is a tooltip.
-    @MainActor public static func badgeWidth(for labels: [String]) -> CGFloat {
+    public static func badgeWidth(for labels: [String]) -> CGFloat {
         let font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
         let widest = labels.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
         return min(96, max(44, ceil(widest) + 12))
@@ -52,7 +53,7 @@ public enum PickerMetrics {
 public enum PickerSelection {
     public static func move(_ current: Int?, by delta: Int, count: Int, allowsEmpty: Bool = false) -> Int? {
         guard count > 0 else { return nil }
-        guard let current else { return delta > 0 || !allowsEmpty ? 0 : nil }
+        guard let current = current else { return delta > 0 || !allowsEmpty ? 0 : nil }
         // Clamp inputs before addition and avoid integer overflow for arbitrary callers.
         let base = min(max(current, allowsEmpty ? -1 : 0), count - 1)
         if delta < 0 {
@@ -62,3 +63,4 @@ public enum PickerSelection {
         return result < 0 ? nil : result
     }
 }
+#endif

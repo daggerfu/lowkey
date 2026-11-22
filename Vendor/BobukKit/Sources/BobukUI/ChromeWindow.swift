@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // The bobuk-io window shell, from lowkey: an accent line, a thin control strip with the close
 // button on the left and app buttons on the right, a separator, then the app's content in `body`.
 // A titled window with the system title bar hidden, so native rounded corners, shadow, resizing,
@@ -9,13 +10,13 @@ import AppKit
 import SwiftUI
 
 /// The accent line at the top of every window. With `progress` it shows a loading bar.
-@MainActor public final class AccentBar: NSView {
+public final class AccentBar: NSView {
     public var color: NSColor = .controlAccentColor { didSet { needsDisplay = true } }
     /// 0...1 while something loads; nil draws the solid line.
     public var progress: Double? { didSet { needsDisplay = true } }
 
     public override func draw(_ dirtyRect: NSRect) {
-        guard let progress else {
+        guard let progress = progress else {
             color.setFill()
             bounds.fill()
             return
@@ -23,14 +24,14 @@ import SwiftUI
         color.withAlphaComponent(0.3).setFill()
         bounds.fill()
         color.setFill()
-        NSRect(x: 0, y: 0, width: bounds.width * max(0.05, min(1, progress)), height: bounds.height).fill()
+        NSRect(x: 0, y: 0, width: bounds.width * CGFloat(max(0.05, min(1, progress))), height: bounds.height).fill()
     }
 }
 
 /// The control strip: leading buttons (close first), an optional title, trailing buttons.
 /// Dragging the strip moves the window; a double-click does what System Settings says
 /// (zoom by default, minimize, or nothing).
-@MainActor public final class ChromeStrip: NSView {
+public final class ChromeStrip: NSView {
     public let closeButton: StripButton
     public private(set) var leading: [StripButton]
     public private(set) var trailing: [StripButton]
@@ -115,14 +116,17 @@ import SwiftUI
             return
         }
         switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-        case "Minimize": window?.miniaturize(nil)
-        case "None": break
-        default: window?.zoom(nil)
+        case "Minimize":
+            window?.miniaturize(nil)
+        case "None":
+            break
+        default:
+            window?.zoom(nil)
         }
     }
 }
 
-@MainActor open class ChromeWindow: NSWindow, Sendable {
+open class ChromeWindow: NSWindow {
     public let accentBar = AccentBar()
     public let strip: ChromeStrip
     /// Place the window's content here (or use `setContent`).
@@ -141,9 +145,7 @@ import SwiftUI
     public var routesEditCommands = true
     /// A targeted hide must not let AppKit promote a window that belongs behind another app.
     public var allowsFocus = true
-    /// Layer colors are fixed CGColors: repaint when light/dark changes.
-    private var appearanceObservation: NSKeyValueObservation?
-    nonisolated(unsafe) private var themeObserver: NSObjectProtocol?
+    private var themeObserver: NSObjectProtocol?
 
     /// Duration of an animated chrome color change (lowkey's Tint mode).
     public static let styleAnimation: CFTimeInterval = 0.2
@@ -174,7 +176,6 @@ import SwiftUI
             standardWindowButton(kind)?.isHidden = true
         }
         close.onPress = { [weak self] _ in self?.performClose(nil) }
-
         let root = NSView()
         root.wantsLayer = true
         strip.wantsLayer = true
@@ -201,9 +202,6 @@ import SwiftUI
         contentView = root
         hideTitlebarContainer()
         applyStyle(animated: false)
-        appearanceObservation = observe(\.effectiveAppearance) { window, _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { window.applyStyle(animated: false) } }
-        }
         NotificationCenter.default.addObserver(self, selector: #selector(fullScreenChanged),
                                                name: NSWindow.didExitFullScreenNotification, object: self)
         NotificationCenter.default.addObserver(self, selector: #selector(fullScreenChanged),
@@ -219,14 +217,14 @@ import SwiftUI
     }
 
     deinit {
-        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+        if let themeObserver = themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
     }
 
     /// Keeps the window's chrome style and control appearance synchronized with a `ThemeStore`.
     public func bindTheme(_ theme: ThemeStore, animated: Bool = false) {
-        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
-        let sync: @MainActor (Bool) -> Void = { [weak self, weak theme] shouldAnimate in
-            guard let self, let theme else { return }
+        if let themeObserver = themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+        let sync: (Bool) -> Void = { [weak self, weak theme] shouldAnimate in
+            guard let self = self, let theme = theme else { return }
             self.appearance = theme.chromeAppearance
             self.setChromeStyle(theme.chromeStyle, animated: shouldAnimate)
         }
@@ -236,7 +234,7 @@ import SwiftUI
             object: theme,
             queue: .main
         ) { _ in
-            MainActor.assumeIsolated { sync(animated) }
+            sync(animated)
         }
     }
 
@@ -269,7 +267,6 @@ import SwiftUI
         strip.applyStyle(style)
         paint(strip, style.panel, animated: animated)
         paint(separator, style.separator, animated: animated)
-        // The root layer covers the window background; it carries the same color so it can animate.
         if let root = contentView { paint(root, style.panel, animated: animated) }
         accentBar.needsDisplay = true
         chromeStyleDidChange(animated: animated)
@@ -277,14 +274,18 @@ import SwiftUI
 
     private func paint(_ view: NSView, _ color: NSColor, animated: Bool) {
         guard let layer = view.layer else { return }
-        // Resolve dynamic colors for this window's appearance.
         var target = color.cgColor
-        effectiveAppearance.performAsCurrentDrawingAppearance { target = color.cgColor }
-        // An unchanged color keeps a running animation.
+        if #available(macOS 11.0, *) {
+            effectiveAppearance.performAsCurrentDrawingAppearance { target = color.cgColor }
+        } else {
+            if let resolved = color.usingColorSpace(.deviceRGB) {
+                target = resolved.cgColor
+            }
+        }
         if let old = layer.backgroundColor, old == target { return }
         let current = layer.presentation()?.backgroundColor ?? layer.backgroundColor
         layer.removeAnimation(forKey: "chromeColor")
-        if animated, let current {
+        if animated, let current = current {
             let animation = CABasicAnimation(keyPath: "backgroundColor")
             animation.fromValue = current
             animation.toValue = target
@@ -295,7 +296,6 @@ import SwiftUI
         layer.backgroundColor = target
     }
 
-    /// The transparent title bar still catches clicks; hide it so the strip and the content get them.
     private func hideTitlebarContainer() {
         guard let frameView = contentView?.superview else { return }
         for view in frameView.subviews where String(describing: type(of: view)).contains("NSTitlebarContainerView") {
@@ -305,10 +305,8 @@ import SwiftUI
 
     @objc private func fullScreenChanged() { hideTitlebarContainer() }
 
-    /// Asks `windowShouldClose` and closes. AppKit's version clicks the hidden title-bar button,
-    /// which spins a nested run loop for the highlight and beeps when the delegate refuses.
     open override func performClose(_ sender: Any?) {
-        if let delegate, delegate.windowShouldClose?(self) == false { return }
+        if let delegate = delegate, delegate.windowShouldClose?(self) == false { return }
         close()
     }
 
@@ -330,13 +328,11 @@ import SwiftUI
         if closesOnEscape { performClose(nil) } else { super.cancelOperation(sender) }
     }
 
-    /// Pins `view` to all edges of `body`, replacing what was there.
     public func setContent(_ view: NSView) {
         body.subviews.forEach { $0.removeFromSuperview() }
         view.pinEdges(to: body)
     }
 
-    /// Hosts a SwiftUI view in `body`.
     @discardableResult
     public func setContent<Content: View>(_ rootView: Content) -> NSHostingView<Content> {
         let hosting = ChromeWindow.hosting(rootView)
@@ -344,20 +340,14 @@ import SwiftUI
         return hosting
     }
 
-    /// An `NSHostingView` for `body`. The hidden title bar is taller than the chrome, so a hosting
-    /// view with default safe areas would push its content down by the difference (9 points):
-    /// always host SwiftUI in a chrome window through this.
     public static func hosting<Content: View>(_ rootView: Content) -> NSHostingView<Content> {
-        let hosting = NSHostingView(rootView: rootView)
-        hosting.safeAreaRegions = []
-        return hosting
+        return NSHostingView(rootView: rootView)
     }
 
-    /// The content size that gives `body` exactly `size`, for `setContentSize` or `contentMinSize`.
     public func contentSize(forBody size: NSSize) -> NSSize {
         NSSize(width: size.width, height: size.height + (contentView?.frame.height ?? 0) - body.frame.height)
     }
 
-    /// Removes the content (stops recorders and timers in it); the chrome stays.
     public func removeContent() { body.subviews.forEach { $0.removeFromSuperview() } }
 }
+#endif

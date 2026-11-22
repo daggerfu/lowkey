@@ -3,7 +3,7 @@
 import Foundation
 
 /// An sRGB color in 0...1 channel range, with hex parsing, mixing and WCAG contrast helpers.
-public struct RGB: Equatable, Hashable, Sendable {
+public struct RGB: Equatable, Hashable {
     public var r: Double
     public var g: Double
     public var b: Double
@@ -60,7 +60,7 @@ public struct RGB: Equatable, Hashable, Sendable {
 }
 
 /// Identifies each customizable color slot in `ThemeColors`.
-public enum ThemeColorRole: String, CaseIterable, Identifiable, Sendable {
+public enum ThemeColorRole: String, CaseIterable, Identifiable {
     case panel, accent, ink, surface, muted, border, selection, link, success, danger
 
     public var id: String { rawValue }
@@ -69,7 +69,7 @@ public enum ThemeColorRole: String, CaseIterable, Identifiable, Sendable {
 /// One appearance's saved colors: a preset id (or `"custom"`), required `panel` & `accent`, and
 /// optional semantic overrides (`nil` means automatically derived from `panel`/`accent`).
 /// Fully backward-compatible with older 2-color JSON (`preset`, `panel`, `accent`).
-public struct ThemeColors: Codable, Equatable, Hashable, Sendable {
+public struct ThemeColors: Codable, Equatable, Hashable {
     public static let customPresetID = "custom"
 
     /// Preset id, or `"custom"` after a manual color change.
@@ -118,23 +118,23 @@ public struct ThemeColors: Codable, Equatable, Hashable, Sendable {
     /// Reads the explicit hex override (or required value) for `role`; nil means auto-derived.
     public func hex(for role: ThemeColorRole) -> String? {
         switch role {
-        case .panel: panel
-        case .accent: accent
-        case .ink: ink
-        case .muted: muted
-        case .surface: surface
-        case .border: border
-        case .selection: selection
-        case .link: link
-        case .success: success
-        case .danger: danger
+        case .panel: return panel
+        case .accent: return accent
+        case .ink: return ink
+        case .muted: return muted
+        case .surface: return surface
+        case .border: return border
+        case .selection: return selection
+        case .link: return link
+        case .success: return success
+        case .danger: return danger
         }
     }
 
     /// Updates a single color role; passing `nil` resets an optional role back to automatic derivation.
     public mutating func set(_ hex: String?, for role: ThemeColorRole) {
-        if let hex {
-            guard let normalized = RGB(hex: hex)?.hex else { return }
+        if let value = hex {
+            guard let normalized = RGB(hex: value)?.hex else { return }
             switch role {
             case .panel: panel = normalized
             case .accent: accent = normalized
@@ -166,8 +166,8 @@ public struct ThemeColors: Codable, Equatable, Hashable, Sendable {
 }
 
 /// Curated light/dark theme preset shared across bobuk-io apps.
-public struct ThemePreset: Identifiable, Equatable, Hashable, Sendable {
-    public struct Palette: Equatable, Hashable, Sendable {
+public struct ThemePreset: Identifiable, Equatable, Hashable {
+    public struct Palette: Equatable, Hashable {
         public let panel: String
         public let accent: String
         public let ink: String?
@@ -414,7 +414,7 @@ public struct ThemePreset: Identifiable, Equatable, Hashable, Sendable {
 }
 
 /// Saved light and dark color palettes for one app.
-public struct ThemePaletteConfig: Codable, Equatable, Hashable, Sendable {
+public struct ThemePaletteConfig: Codable, Equatable, Hashable {
     public var light: ThemeColors
     public var dark: ThemeColors
 
@@ -484,7 +484,7 @@ public struct ThemePaletteConfig: Codable, Equatable, Hashable, Sendable {
 
 /// Complete set of resolved UI colors computed from `ThemeColors`, using explicit preset/user values
 /// where supplied and WCAG-checked automatic derivations where omitted.
-public struct ThemeTokens: Equatable, Hashable, Sendable {
+public struct ThemeTokens: Equatable, Hashable {
     public let panel: RGB
     public let accent: RGB
     public let ink: RGB
@@ -579,8 +579,8 @@ public struct ThemeTokens: Equatable, Hashable, Sendable {
         self.keyInk = Self.ink(on: accent)
         self.link = customLink ?? accent
 
-        if let customSuccess {
-            self.success = customSuccess
+        if let custom = customSuccess {
+            self.success = custom
         } else {
             let rawSuccess = darkSurface ? RGB(hex: 0x9CC9AE) : RGB(hex: 0x286444)
             self.success = Self.ensureContrast(rawSuccess, on: panel, fallbackInk: autoInk, minimum: 4.5)
@@ -588,8 +588,8 @@ public struct ThemeTokens: Equatable, Hashable, Sendable {
         self.successSurface = panel.mixed(with: self.success, darkSurface ? 0.20 : 0.14)
         self.accentSurface = panel.mixed(with: accent, darkSurface ? 0.24 : 0.16)
 
-        if let customDanger {
-            self.danger = customDanger
+        if let custom = customDanger {
+            self.danger = custom
         } else {
             let rawDanger = darkSurface ? RGB(hex: 0xE57A6D) : RGB(hex: 0xB53D32)
             self.danger = Self.ensureContrast(rawDanger, on: panel, fallbackInk: autoInk, minimum: 4.5)
@@ -602,16 +602,16 @@ public struct ThemeTokens: Equatable, Hashable, Sendable {
     /// Reads the resolved color for a customizable role.
     public func color(for role: ThemeColorRole) -> RGB {
         switch role {
-        case .panel: panel
-        case .accent: accent
-        case .ink: ink
-        case .muted: muted
-        case .surface: elevated
-        case .border: line
-        case .selection: selection
-        case .link: link
-        case .success: success
-        case .danger: danger
+        case .panel: return panel
+        case .accent: return accent
+        case .ink: return ink
+        case .muted: return muted
+        case .surface: return elevated
+        case .border: return line
+        case .selection: return selection
+        case .link: return link
+        case .success: return success
+        case .danger: return danger
         }
     }
 

@@ -1,12 +1,17 @@
 // The running app's bundle, executable and version, found without SwiftPM's `Bundle.module`
 // (which embeds the builder's absolute build path) and without trusting `Bundle.main` when the
 // executable was started through a symlink (a command-line companion in /usr/local/bin).
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 public enum AppBundle {
     /// The running executable, symlinks resolved.
     public static let executableURL: URL = {
+        #if canImport(Darwin)
         var size: UInt32 = 0
         _NSGetExecutablePath(nil, &size)
         var buffer = [CChar](repeating: 0, count: Int(size))
@@ -14,6 +19,14 @@ public enum AppBundle {
             return URL(fileURLWithPath: CommandLine.arguments.first ?? "/").resolvingSymlinksInPath()
         }
         return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL.resolvingSymlinksInPath()
+        #else
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let count = readlink("/proc/self/exe", &buffer, buffer.count)
+        guard count > 0 else {
+            return URL(fileURLWithPath: CommandLine.arguments.first ?? "/").resolvingSymlinksInPath()
+        }
+        return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL.resolvingSymlinksInPath()
+        #endif
     }()
 
     /// `X.app` for `X.app/Contents/MacOS/<executable>`; nil for `swift run` and test hosts.

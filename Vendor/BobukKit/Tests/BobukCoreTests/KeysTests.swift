@@ -1,106 +1,129 @@
 import Foundation
-import Testing
+import XCTest
 @testable import BobukCore
 
-@Suite struct SequenceKeyTests {
+final class SequenceKeyTests: XCTestCase {
     static let names = Array("abcdefghijklmnopqrstuvwxyz0123456789").map(String.init) + ["space", "return"] + (1...20).map { "f\($0)" }
 
-    @Test(arguments: names) func validNames(_ name: String) {
-        #expect(SequenceKey.isValid(name))
-        #expect(SequenceKey.normalize(name.uppercased()) == name)
-        if name != name.uppercased() { #expect(!SequenceKey.isValid(name.uppercased())) }
+    func testValidNames() {
+        for name in SequenceKeyTests.names { validNames(name) }
+    }
+
+    private func validNames(_ name: String) {
+        XCTAssert(SequenceKey.isValid(name))
+        XCTAssertEqual(SequenceKey.normalize(name.uppercased()), name)
+        if name != name.uppercased() { XCTAssert(!SequenceKey.isValid(name.uppercased())) }
         let label = name == "space" ? "␣" : name == "return" ? "↩" : name.uppercased()
-        #expect(SequenceKey.display(name) == label)
-        #expect(SequenceKey.spoken(name) == (name == "space" ? "Space" : name == "return" ? "Return" : name.uppercased()))
+        XCTAssertEqual(SequenceKey.display(name), label)
+        XCTAssertEqual(SequenceKey.spoken(name), (name == "space" ? "Space" : name == "return" ? "Return" : name.uppercased()))
     }
 
-    @Test(arguments: ["", "ab", "f0", "f21", "-", "ф", "tab", " a", "a "])
-    func invalidNames(_ name: String) {
-        #expect(!SequenceKey.isValid(name))
-        #expect(SequenceKey.normalize(name) == nil)
+    func testInvalidNames() {
+        for name in ["", "ab", "f0", "f21", "-", "ф", "tab", " a", "a "] { invalidNames(name) }
     }
 
-    @Test func specialPhysicalKeysIgnoreLatin() {
+    private func invalidNames(_ name: String) {
+        XCTAssert(!SequenceKey.isValid(name))
+        XCTAssertEqual(SequenceKey.normalize(name), nil)
+    }
+
+    func testSpecialPhysicalKeysIgnoreLatin() {
         let pairs: [(UInt16, String)] = [(49, "space"), (36, "return"), (76, "return")] + SequenceKey.functionKeyCodes.map { ($0.key, $0.value) }
-        #expect(SequenceKey.functionKeyCodes.count == 20)
+        XCTAssertEqual(SequenceKey.functionKeyCodes.count, 20)
         for (code, name) in pairs {
-            #expect(SequenceKey.name(keyCode: code, latin: nil) == name)
-            #expect(SequenceKey.name(keyCode: code, latin: "ф") == name)
+            XCTAssertEqual(SequenceKey.name(keyCode: code, latin: nil), name)
+            XCTAssertEqual(SequenceKey.name(keyCode: code, latin: "ф"), name)
         }
     }
 
-    @Test(arguments: Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789").map(String.init))
-    func latinInput(_ latin: String) {
-        #expect(SequenceKey.name(keyCode: 0, latin: latin) == latin.lowercased())
+    func testLatinInput() {
+        for latin in Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789").map(String.init) { latinInput(latin) }
     }
 
-    @Test(arguments: [nil, "", "ab", "é", "ф", "İ", "-", " ", "\n"] as [String?])
-    func rejectedLatin(_ latin: String?) { #expect(SequenceKey.name(keyCode: 0, latin: latin) == nil) }
+    private func latinInput(_ latin: String) {
+        XCTAssertEqual(SequenceKey.name(keyCode: 0, latin: latin), latin.lowercased())
+    }
+
+    func testRejectedLatin() {
+        let values: [String?] = [nil, "", "ab", "é", "ф", "İ", "-", " ", "\n"]
+        for latin in values { rejectedLatin(latin) }
+    }
+
+    private func rejectedLatin(_ latin: String?) { XCTAssertEqual(SequenceKey.name(keyCode: 0, latin: latin), nil) }
 }
 
-@Suite struct ModifierKeyTests {
-    @Test func physicalMappings() {
+final class ModifierKeyTests: XCTestCase {
+    func testPhysicalMappings() {
         let cases: [(ModifierKey, UInt16, ModifierSet, String)] = [
             (.leftCommand, 55, .command, "Left ⌘"), (.rightCommand, 54, .command, "Right ⌘"),
             (.leftShift, 56, .shift, "Left ⇧"), (.rightShift, 60, .shift, "Right ⇧"),
             (.leftOption, 58, .option, "Left ⌥"), (.rightOption, 61, .option, "Right ⌥"),
             (.leftControl, 59, .control, "Left ⌃"), (.rightControl, 62, .control, "Right ⌃"),
             (.function, 63, .function, "fn")]
-        #expect(cases.count == ModifierKey.allCases.count)
+        XCTAssertEqual(cases.count, ModifierKey.allCases.count)
         for (key, code, flag, label) in cases {
-            #expect(key.keyCode == code)
-            #expect(ModifierKey(keyCode: code) == key)
-            #expect(key.flag == flag)
-            #expect(key.display == label)
+            XCTAssertEqual(key.keyCode, code)
+            XCTAssertEqual(ModifierKey(keyCode: code), key)
+            XCTAssertEqual(key.flag, flag)
+            XCTAssertEqual(key.display, label)
         }
-        #expect(ModifierKey(keyCode: 0) == nil)
-        #expect(ModifierKey(keyCode: UInt16.max) == nil)
+        XCTAssertEqual(ModifierKey(keyCode: 0), nil)
+        XCTAssertEqual(ModifierKey(keyCode: UInt16.max), nil)
     }
-    @Test func symbols() {
-        #expect(ModifierSet().symbols == "")
-        #expect(ModifierSet.function.symbols == "")
-        #expect(ModifierSet([.command, .shift, .option, .control, .function]).symbols == "⌃⌥⇧⌘")
-        #expect(ModifierSet([.command, .option]).symbols == "⌥⌘")
+    func testSymbols() {
+        XCTAssertEqual(ModifierSet().symbols, "")
+        XCTAssertEqual(ModifierSet.function.symbols, "")
+        XCTAssertEqual(ModifierSet([.command, .shift, .option, .control, .function]).symbols, "⌃⌥⇧⌘")
+        XCTAssertEqual(ModifierSet([.command, .option]).symbols, "⌥⌘")
     }
 }
 
-@Suite struct KeyCodesTests {
-    @Test func ansiRoundTrips() {
-        #expect(KeyCodes.ansi.count == 100)
+final class KeyCodesTests: XCTestCase {
+    func testAnsiRoundTrips() {
+        XCTAssertEqual(KeyCodes.ansi.count, 100)
         for (name, code) in KeyCodes.ansi {
-            #expect(KeyCodes.code(for: name) == code)
-            #expect(KeyCodes.name(for: code) == name)
+            XCTAssertEqual(KeyCodes.code(for: name), code)
+            XCTAssertEqual(KeyCodes.name(for: code), name)
         }
-        #expect(KeyCodes.code(for: "unknown") == nil)
-        #expect(KeyCodes.code(for: "") == nil)
-        #expect(KeyCodes.name(for: UInt16.max) == nil)
+        XCTAssertEqual(KeyCodes.code(for: "unknown"), nil)
+        XCTAssertEqual(KeyCodes.code(for: ""), nil)
+        XCTAssertEqual(KeyCodes.name(for: UInt16.max), nil)
     }
 }
 
-@Suite struct HotkeyTests {
-    @Test(arguments: ["pause", "PAUSE", "Pause"])
-    func pauseAlias(_ text: String) throws {
-        let h = try #require(Hotkey(string: text))
-        #expect(h == .combo(keyCode: 113, modifiers: []))
-        #expect(h.isValid)
-        #expect(h.string == "f15")
-        #expect(h.display == "F15")
-        #expect(KeyCodes.name(for: 113) == "f15")
+final class HotkeyTests: XCTestCase {
+    func testPauseAlias() throws {
+        for text in ["pause", "PAUSE", "Pause"] { try pauseAlias(text) }
     }
-    @Test func pauseAliasWithModifiers() {
+
+    private func pauseAlias(_ text: String) throws {
+        let h = try XCTUnwrap(Hotkey(string: text))
+        XCTAssertEqual(h, .combo(keyCode: 113, modifiers: []))
+        XCTAssert(h.isValid)
+        XCTAssertEqual(h.string, "f15")
+        XCTAssertEqual(h.display, "F15")
+        XCTAssertEqual(KeyCodes.name(for: 113), "f15")
+    }
+
+    func testPauseAliasWithModifiers() {
         let h = Hotkey(string: "shift+pause")
-        #expect(h == .combo(keyCode: 113, modifiers: .shift))
-        #expect(h?.string == "shift+f15")
+        XCTAssertEqual(h, .combo(keyCode: 113, modifiers: .shift))
+        XCTAssertEqual(h?.string, "shift+f15")
     }
-    @Test(arguments: ["option+shift+cmd+f", "Cmd+Shift+Option+F", "f+COMMAND+alt+SHIFT", "shift+opt+command+f"])
-    func realLeader(_ text: String) throws {
-        let h = try #require(Hotkey(string: text))
-        #expect(h == .combo(keyCode: 3, modifiers: [.option, .shift, .command]))
-        #expect(h.string == "option+shift+cmd+f")
-        #expect(h.display == "⌥⇧⌘F")
-        #expect(h.isValid)
+
+    func testRealLeader() throws {
+        for text in ["option+shift+cmd+f", "Cmd+Shift+Option+F", "f+COMMAND+alt+SHIFT", "shift+opt+command+f"] { try realLeader(text) }
     }
-    @Test func displaysAndCanonicalOrder() {
+
+    private func realLeader(_ text: String) throws {
+        let h = try XCTUnwrap(Hotkey(string: text))
+        XCTAssertEqual(h, .combo(keyCode: 3, modifiers: [.option, .shift, .command]))
+        XCTAssertEqual(h.string, "option+shift+cmd+f")
+        XCTAssertEqual(h.display, "⌥⇧⌘F")
+        XCTAssert(h.isValid)
+    }
+
+    func testDisplaysAndCanonicalOrder() {
         let cases: [(String, Hotkey, String)] = [
             ("shift+f15", .combo(keyCode: 113, modifiers: .shift), "⇧F15"),
             ("f13", .combo(keyCode: 105, modifiers: []), "F13"),
@@ -111,38 +134,48 @@ import Testing
             ("cmd+escape", .combo(keyCode: 53, modifiers: .command), "⌘⎋"),
             ("cmd+delete", .combo(keyCode: 51, modifiers: .command), "⌘⌫")]
         for (text, h, label) in cases {
-            #expect(Hotkey(string: text) == h)
-            #expect(h.display == label)
-            if case .modifierTap = h { #expect(!h.isValid) } else { #expect(h.isValid) }
+            XCTAssertEqual(Hotkey(string: text), h)
+            XCTAssertEqual(h.display, label)
+            if case .modifierTap = h { XCTAssert(!h.isValid) } else { XCTAssert(h.isValid) }
         }
-        #expect(Hotkey.combo(keyCode: 0, modifiers: [.command, .shift, .control, .option]).string == "ctrl+option+shift+cmd+a")
+        XCTAssertEqual(Hotkey.combo(keyCode: 0, modifiers: [.command, .shift, .control, .option]).string, "ctrl+option+shift+cmd+a")
     }
-    @Test(arguments: ["", "unknown+a", "cmd+unknown", "cmd+a+b", "cmd+", "+cmd+a"])
-    func invalidParsing(_ text: String) { #expect(Hotkey(string: text) == nil) }
 
-    @Test func validity() {
-        #expect(Hotkey.combo(keyCode: 0, modifiers: []).isValid)
-        #expect(!Hotkey.combo(keyCode: 0, modifiers: [.function, .command]).isValid)
-        for code in SequenceKey.functionKeyCodes.keys { #expect(Hotkey.combo(keyCode: code, modifiers: []).isValid) }
+    func testInvalidParsing() {
+        for text in ["", "unknown+a", "cmd+unknown", "cmd+a+b", "cmd+", "+cmd+a"] { invalidParsing(text) }
+    }
+
+    private func invalidParsing(_ text: String) { XCTAssertEqual(Hotkey(string: text), nil) }
+
+    func testValidity() {
+        XCTAssert(Hotkey.combo(keyCode: 0, modifiers: []).isValid)
+        XCTAssert(!Hotkey.combo(keyCode: 0, modifiers: [.function, .command]).isValid)
+        for code in SequenceKey.functionKeyCodes.keys { XCTAssert(Hotkey.combo(keyCode: code, modifiers: []).isValid) }
         for key in ModifierKey.allCases {
-            #expect(!Hotkey.modifierTap(key).isValid)
-            #expect(!Hotkey.combo(keyCode: key.keyCode, modifiers: []).isValid)
+            XCTAssert(!Hotkey.modifierTap(key).isValid)
+            XCTAssert(!Hotkey.combo(keyCode: key.keyCode, modifiers: []).isValid)
         }
-        #expect(!Hotkey.combo(keyCode: 57, modifiers: []).isValid)
+        XCTAssert(!Hotkey.combo(keyCode: 57, modifiers: []).isValid)
     }
-    @Test(arguments: ["home", "end", "pageup", "pagedown", "space", "return", "a", "1", "left", "keypad0", "escape"])
-    func bareLeader(_ name: String) throws {
-        let hotkey = try #require(Hotkey(string: name))
-        #expect(hotkey.isValid)
-        #expect(hotkey.string == name)
-        #expect(try JSONDecoder().decode(Hotkey.self, from: JSONEncoder().encode(hotkey)) == hotkey)
+
+    func testBareLeader() throws {
+        for name in ["home", "end", "pageup", "pagedown", "space", "return", "a", "1", "left", "keypad0", "escape"] { try bareLeader(name) }
     }
-    @Test func homeLeader() {
-        #expect(Hotkey(string: "home") == .combo(keyCode: 115, modifiers: []))
-        #expect(Hotkey(string: "HOME")?.display == "Home")
-        #expect(Hotkey(string: "shift+home")?.isValid == true)
+
+    private func bareLeader(_ name: String) throws {
+        let hotkey = try XCTUnwrap(Hotkey(string: name))
+        XCTAssert(hotkey.isValid)
+        XCTAssertEqual(hotkey.string, name)
+        XCTAssertEqual(try JSONDecoder().decode(Hotkey.self, from: JSONEncoder().encode(hotkey)), hotkey)
     }
-    @Test func roundTripsAndCodable() throws {
+
+    func testHomeLeader() {
+        XCTAssertEqual(Hotkey(string: "home"), .combo(keyCode: 115, modifiers: []))
+        XCTAssertEqual(Hotkey(string: "HOME")?.display, "Home")
+        XCTAssertEqual(Hotkey(string: "shift+home")?.isValid, true)
+    }
+
+    func testRoundTripsAndCodable() throws {
         var hotkeys = ModifierKey.allCases.map(Hotkey.modifierTap)
         hotkeys += SequenceKey.functionKeyCodes.keys.map { .combo(keyCode: $0, modifiers: []) }
         for code in KeyCodes.ansi.values {
@@ -151,40 +184,51 @@ import Testing
             }
         }
         for h in hotkeys {
-            #expect(Hotkey(string: h.string) == h)
+            XCTAssertEqual(Hotkey(string: h.string), h)
             let data = try JSONEncoder().encode(h)
-            #expect(try JSONDecoder().decode(String.self, from: data) == h.string)
-            #expect(try JSONDecoder().decode(Hotkey.self, from: data) == h)
+            XCTAssertEqual(try JSONDecoder().decode(String.self, from: data), h.string)
+            XCTAssertEqual(try JSONDecoder().decode(Hotkey.self, from: data), h)
         }
-        #expect(throws: (any Error).self) { try JSONDecoder().decode(Hotkey.self, from: Data("\"nonsense\"".utf8)) }
+        XCTAssertThrowsError(try JSONDecoder().decode(Hotkey.self, from: Data("\"nonsense\"".utf8))) { error in
+            XCTAssert(error is DecodingError)
+        }
     }
 }
 
-@Suite struct ModifierTapDetectorTests {
-    @Test(arguments: ModifierKey.allCases) func consecutiveTaps(_ key: ModifierKey) {
+final class ModifierTapDetectorTests: XCTestCase {
+    func testConsecutiveTaps() {
+        for key in ModifierKey.allCases { consecutiveTaps(key) }
+    }
+
+    private func consecutiveTaps(_ key: ModifierKey) {
         var d = ModifierTapDetector()
         for time in [0.0, 1.0] {
-            #expect(d.flagsChanged(keyCode: key.keyCode, modifiers: key.flag, time: time) == nil)
-            #expect(d.flagsChanged(keyCode: key.keyCode, modifiers: [], time: time + 0.1) == key)
+            XCTAssertEqual(d.flagsChanged(keyCode: key.keyCode, modifiers: key.flag, time: time), nil)
+            XCTAssertEqual(d.flagsChanged(keyCode: key.keyCode, modifiers: [], time: time + 0.1), key)
         }
     }
-    @Test func noCandidate() {
+
+    func testNoCandidate() {
         var d = ModifierTapDetector()
-        #expect(d.flagsChanged(keyCode: 61, modifiers: [], time: 0) == nil)
-        #expect(d.flagsChanged(keyCode: 61, modifiers: [.option, .shift], time: 1) == nil)
-        #expect(d.flagsChanged(keyCode: 61, modifiers: [], time: 1.1) == nil)
+        XCTAssertEqual(d.flagsChanged(keyCode: 61, modifiers: [], time: 0), nil)
+        XCTAssertEqual(d.flagsChanged(keyCode: 61, modifiers: [.option, .shift], time: 1), nil)
+        XCTAssertEqual(d.flagsChanged(keyCode: 61, modifiers: [], time: 1.1), nil)
     }
-    @Test(arguments: ["slow", "second", "normal", "different", "unknown"])
-    func cancellations(_ scenario: String) {
+
+    func testCancellations() {
+        for scenario in ["slow", "second", "normal", "different", "unknown"] { cancellations(scenario) }
+    }
+
+    private func cancellations(_ scenario: String) {
         var d = ModifierTapDetector(maxDuration: 0.2)
-        #expect(d.flagsChanged(keyCode: 61, modifiers: .option, time: 0) == nil)
+        XCTAssertEqual(d.flagsChanged(keyCode: 61, modifiers: .option, time: 0), nil)
         switch scenario {
-        case "second": #expect(d.flagsChanged(keyCode: 56, modifiers: [.shift, .option], time: 0.05) == nil)
+        case "second": XCTAssertEqual(d.flagsChanged(keyCode: 56, modifiers: [.shift, .option], time: 0.05), nil)
         case "normal": d.keyDown()
-        case "different": #expect(d.flagsChanged(keyCode: 58, modifiers: [], time: 0.1) == nil); return
-        case "unknown": #expect(d.flagsChanged(keyCode: 0, modifiers: .option, time: 0.05) == nil)
+        case "different": XCTAssertEqual(d.flagsChanged(keyCode: 58, modifiers: [], time: 0.1), nil); return
+        case "unknown": XCTAssertEqual(d.flagsChanged(keyCode: 0, modifiers: .option, time: 0.05), nil)
         default: break
         }
-        #expect(d.flagsChanged(keyCode: 61, modifiers: [], time: scenario == "slow" ? 0.3 : 0.15) == nil)
+        XCTAssertEqual(d.flagsChanged(keyCode: 61, modifiers: [], time: scenario == "slow" ? 0.3 : 0.15), nil)
     }
 }

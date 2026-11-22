@@ -1,10 +1,12 @@
 // Where a panel appears on a screen. Pure geometry in AppKit screen coordinates (y grows up),
 // so it is tested without screens. `BobukUI.Screens` supplies the screen under the pointer.
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// The vertical anchor of a panel inside a screen's visible area.
-public enum PanelAnchor: Equatable, Sendable {
+public enum PanelAnchor: Equatable {
     /// Centered; a positive offset moves it up. Leader menu and HAScS: 0; Splash Finish: -55.
     case center(offsetUp: CGFloat = 0)
     /// Top edge `fraction` of the height below the top, at least `minimum` points.
@@ -15,7 +17,7 @@ public enum PanelAnchor: Equatable, Sendable {
 }
 
 public enum PanelPlacement {
-    public struct Result: Equatable, Sendable {
+    public struct Result: Equatable {
         public var frame: CGRect
         /// Visible area of the screen that hosts the panel; sizes a scrolling list.
         public var area: CGRect
@@ -39,9 +41,9 @@ public enum PanelPlacement {
     /// (launcha: `height = min(640, top - area.minY - 20)`). `.center` has no fixed top: midY.
     public static func top(in area: CGRect, anchor: PanelAnchor) -> CGFloat {
         switch anchor {
-        case .center(let offset): area.midY + offset
-        case .upper(let fraction, let minimum): area.maxY - max(minimum, area.height * fraction)
-        case .top(let inset): area.maxY - inset
+        case .center(let offset): return area.midY + offset
+        case .upper(let fraction, let minimum): return area.maxY - max(minimum, area.height * fraction)
+        case .top(let inset): return area.maxY - inset
         }
     }
 
@@ -50,7 +52,7 @@ public enum PanelPlacement {
     /// whose inbox the user can drag.
     public static func place(size: CGSize, remembered topLeft: CGPoint?, screens: [CGRect], active: CGRect,
                              anchor: PanelAnchor = .center(offsetUp: -55), margin: CGFloat = 16) -> Result {
-        if let topLeft, let area = screens.first(where: { $0.insetBy(dx: -1, dy: -1).contains(topLeft) }) {
+        if let topLeft = topLeft, let area = screens.first(where: { $0.insetBy(dx: -1, dy: -1).contains(topLeft) }) {
             let x = clamp(topLeft.x, area.minX, area.maxX - size.width)
             let top = clamp(topLeft.y, area.minY + size.height, area.maxY)
             return Result(frame: CGRect(x: x, y: top - size.height, width: size.width, height: size.height), area: area)
@@ -64,7 +66,7 @@ public enum PanelPlacement {
         var result = frame
         result.origin.y = frame.maxY - height
         result.size.height = height
-        if let area { result.origin.y = clamp(result.origin.y, area.minY + margin, area.maxY - height - margin) }
+        if let area = area { result.origin.y = clamp(result.origin.y, area.minY + margin, area.maxY - height - margin) }
         return result
     }
 

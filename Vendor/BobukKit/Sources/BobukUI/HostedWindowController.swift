@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // One app window that is created on demand, remembers its frame, activates the accessory app
 // when shown and releases its content when closed (so shortcut recorders, timers and secure
 // fields do not live on). Settings, Welcome, permission and update windows of every app.
@@ -5,9 +6,9 @@ import AppKit
 import SwiftUI
 import BobukSystem
 
-@MainActor open class HostedWindowController: NSObject, NSWindowDelegate, Sendable {
-    public typealias WindowFactory = @MainActor () -> NSWindow
-    public typealias ContentFactory = @MainActor () -> NSView
+open class HostedWindowController: NSObject, NSWindowDelegate {
+    public typealias WindowFactory = () -> NSWindow
+    public typealias ContentFactory = () -> NSView
 
     public private(set) var window: NSWindow?
     public let frameName: String?
@@ -33,7 +34,7 @@ import BobukSystem
     /// A controller for a SwiftUI root view.
     public convenience init<Content: View>(frameName: String? = nil, releasesContentOnClose: Bool = true,
                                            window: @escaping WindowFactory,
-                                           @ViewBuilder rootView: @escaping @MainActor () -> Content) {
+                                           @ViewBuilder rootView: @escaping () -> Content) {
         self.init(frameName: frameName, releasesContentOnClose: releasesContentOnClose, window: window,
                   content: { ChromeWindow.hosting(rootView()) })
     }
@@ -59,7 +60,7 @@ import BobukSystem
     /// existing window when there is one.
     @discardableResult
     public func prepare() -> NSWindow {
-        if let window { return window }
+        if let window = window { return window }
         let window = makeWindow()
         window.delegate = self
         window.isReleasedWhenClosed = false
@@ -74,7 +75,7 @@ import BobukSystem
                 window.setContentSize(fitting)
             }
         }
-        if let frameName {
+        if let frameName = frameName {
             if !window.setFrameUsingName(frameName) { window.center() }
             window.setFrameAutosaveName(frameName)
         } else {
@@ -87,7 +88,7 @@ import BobukSystem
     open func windowShouldClose(_ sender: NSWindow) -> Bool { true }
 
     open func windowWillClose(_ notification: Notification) {
-        if releasesContentOnClose, let window {
+        if releasesContentOnClose, let window = window {
             if let chrome = window as? ChromeWindow { chrome.removeContent() } else { window.contentView = nil }
             window.delegate = nil
             self.window = nil
@@ -95,3 +96,4 @@ import BobukSystem
         onClose?()
     }
 }
+#endif

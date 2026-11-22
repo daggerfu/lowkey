@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // Colors of a window's chrome: the accent bar, the control strip, its buttons and the separator.
 // Apps compute it from their own theme (lowkey from its tint engine, Ting from its palette).
 import AppKit
@@ -65,3 +66,4 @@ public enum ChromeMetrics {
         NSSize(width: size.width, height: size.height + chromeHeight(accentHeight: accentHeight))
     }
 }
+#endif

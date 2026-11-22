@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // Reusable SwiftUI theming modifiers, section cards, rich preview swatch and Settings controls
 // (both standalone cards and grouped Form rows) for bobuk-io apps.
 import AppKit
@@ -5,18 +6,15 @@ import BobukCore
 import SwiftUI
 
 public extension View {
-    /// Applies a theme's panel surface, primary text color and accent tint across the view hierarchy,
-    /// hiding default scroll backgrounds so the panel color fills the window.
+    /// Applies a theme's panel surface, primary text color and accent tint across the view hierarchy.
     func themedSurface(_ tokens: ThemeTokens) -> some View {
         self
-            .scrollContentBackground(.hidden)
-            .foregroundStyle(tokens.inkColor)
-            .tint(tokens.accentColor)
+            .foregroundColor(tokens.inkColor)
             .background(tokens.panelColor)
     }
 
     /// Convenience overload reading live tokens from a `ThemeStore`.
-    @MainActor func themedSurface(_ theme: ThemeStore) -> some View {
+    func themedSurface(_ theme: ThemeStore) -> some View {
         themedSurface(theme.tokens)
     }
 }
@@ -35,9 +33,9 @@ public struct ThemedSection<Content: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let title, !title.isEmpty {
+            if let title = title, !title.isEmpty {
                 MonoLabel(title, size: 10, tracking: 1.4)
-                    .foregroundStyle(tokens.mutedColor)
+                    .foregroundColor(tokens.mutedColor)
                     .padding(.horizontal, 4)
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -45,7 +43,7 @@ public struct ThemedSection<Content: View>: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(tokens.elevatedColor, in: RoundedRectangle(cornerRadius: 8))
+            .background(RoundedRectangle(cornerRadius: 8).fill(tokens.elevatedColor))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(tokens.strokeColor, lineWidth: 1))
         }
     }
@@ -68,7 +66,7 @@ public struct ThemeSwatchStrip: View {
             dot(tokens.successColor)
             dot(tokens.dangerColor)
         }
-        .accessibilityHidden(true)
+        .accessibility(hidden: true)
     }
 
     private func dot(_ color: Color) -> some View {
@@ -98,40 +96,40 @@ public struct ThemePreview: View {
                         HStack(spacing: 4) {
                             Text("Title")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(tokens.inkColor)
+                                .foregroundColor(tokens.inkColor)
                             Text("link")
                                 .font(.system(size: 10, weight: .medium))
                                 .underline()
-                                .foregroundStyle(tokens.linkColor)
+                                .foregroundColor(tokens.linkColor)
                         }
                         Text("Secondary text")
                             .font(.system(size: 9))
-                            .foregroundStyle(tokens.mutedColor)
+                            .foregroundColor(tokens.mutedColor)
                     }
                     Spacer(minLength: 6)
                     Text("KEY")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(tokens.keyInkColor)
+                        .foregroundColor(tokens.keyInkColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(tokens.accentColor, in: RoundedRectangle(cornerRadius: 4))
+                        .background(RoundedRectangle(cornerRadius: 4).fill(tokens.accentColor))
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
-                .background(tokens.elevatedColor, in: RoundedRectangle(cornerRadius: 5))
+                .background(RoundedRectangle(cornerRadius: 5).fill(tokens.elevatedColor))
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tokens.strokeColor, lineWidth: 0.75))
 
                 HStack(spacing: 6) {
                     Text("Selected row")
                         .font(.system(size: 9.5, weight: .medium))
-                        .foregroundStyle(tokens.inkColor)
+                        .foregroundColor(tokens.inkColor)
                     Spacer(minLength: 4)
                     Circle().fill(tokens.successColor).frame(width: 6, height: 6)
                     Circle().fill(tokens.dangerColor).frame(width: 6, height: 6)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(tokens.selectionColor, in: RoundedRectangle(cornerRadius: 4))
+                .background(RoundedRectangle(cornerRadius: 4).fill(tokens.selectionColor))
             }
             .padding(8)
             .background(tokens.panelColor)
@@ -139,7 +137,7 @@ public struct ThemePreview: View {
         .frame(width: 220)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(tokens.lineColor, lineWidth: 1))
-        .accessibilityHidden(true)
+        .accessibility(hidden: true)
     }
 }
 
@@ -165,7 +163,7 @@ private struct ThemeRoleSpec: Identifiable {
     ]
 }
 
-@MainActor private struct ThemeBindings {
+private struct ThemeBindings {
     let theme: ThemeStore
     let presets: [ThemePreset]
     let editingDark: Bool
@@ -186,11 +184,11 @@ private struct ThemeRoleSpec: Identifiable {
         )
     }
 
-    func colorBinding(for role: ThemeColorRole) -> Binding<Color> {
+    func colorBinding(for role: ThemeColorRole) -> Binding<NSColor> {
         Binding(
-            get: { Color(tokens.color(for: role)) },
+            get: { NSColor(tokens.color(for: role)) },
             set: { color in
-                guard let rgb = NSColor(color).rgb else { return }
+                guard let rgb = color.rgb else { return }
                 theme.setColor(rgb, for: role, dark: editingDark)
             }
         )
@@ -206,12 +204,42 @@ private struct ThemeRoleSpec: Identifiable {
     }
 }
 
+/// Native color control (macOS 10.15): the modern SwiftUI `ColorPicker` is not available here.
+private struct ColorWell: NSViewRepresentable {
+    @Binding var color: NSColor
+    let accessibilityLabel: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let well = NSColorWell(frame: .zero)
+        well.target = context.coordinator
+        well.action = #selector(Coordinator.colorChanged(_:))
+        well.controlSize = .small
+        well.setAccessibilityLabel(accessibilityLabel)
+        return well
+    }
+
+    func updateNSView(_ well: NSColorWell, context: Context) {
+        context.coordinator.parent = self
+        well.color = color
+        well.setAccessibilityLabel(accessibilityLabel)
+    }
+
+    final class Coordinator: NSObject {
+        var parent: ColorWell
+        init(_ parent: ColorWell) { self.parent = parent }
+
+        @objc func colorChanged(_ well: NSColorWell) { parent.color = well.color }
+    }
+}
+
 /// Form rows for apps that embed theme controls inside a native macOS grouped `Form` `Section`.
 /// Shows Mode, Theme (with palette swatches), core colors (`Panel`, `Accent`, `Text`), an expandable
-/// `More colors` disclosure group (`Surface`, `Muted text`, `Border`, `Selection`, `Link`, `Success`,
+/// `More colors` disclosure (`Surface`, `Muted text`, `Border`, `Selection`, `Link`, `Success`,
 /// `Danger`), rich live preview, WCAG contrast warnings and Reset.
-@MainActor public struct ThemeSettingsFormRows: View {
-    @Bindable private var theme: ThemeStore
+public struct ThemeSettingsFormRows: View {
+    @ObservedObject private var theme: ThemeStore
     private let offeredAppearances: [AppearanceChoice]
     private let presets: [ThemePreset]
     private let showsCustomColors: Bool
@@ -231,24 +259,38 @@ private struct ThemeRoleSpec: Identifiable {
 
     private var activeEditingDark: Bool {
         switch theme.appearance {
-        case .light: false
-        case .dark: true
-        case .system: editingDark
+        case .light: return false
+        case .dark: return true
+        case .system: return editingDark
+        }
+    }
+
+    private var bindings: ThemeBindings {
+        ThemeBindings(theme: theme, presets: presets, editingDark: activeEditingDark)
+    }
+
+    private var editedTokens: ThemeTokens { bindings.tokens }
+
+    private func row<Control: View>(_ label: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundColor(theme.tokens.inkColor)
+            Spacer(minLength: 12)
+            control()
         }
     }
 
     public var body: some View {
-        let bindings = ThemeBindings(theme: theme, presets: presets, editingDark: activeEditingDark)
-        let editedTokens = bindings.tokens
         Group {
             Picker("Mode", selection: $theme.appearance) {
                 ForEach(offeredAppearances) { choice in
                     Text(choice.title).tag(choice)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(SegmentedPickerStyle())
 
-            LabeledContent("Theme") {
+            row("Theme") {
                 HStack(spacing: 10) {
                     ThemeSwatchStrip(tokens: editedTokens)
                     Picker("Theme", selection: bindings.presetSelection) {
@@ -271,34 +313,42 @@ private struct ThemeRoleSpec: Identifiable {
                         Text("Light").tag(false)
                         Text("Dark").tag(true)
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(SegmentedPickerStyle())
                 }
 
                 ForEach(ThemeRoleSpec.core) { spec in
                     colorRow(spec, bindings: bindings)
                 }
 
-                DisclosureGroup("More colors", isExpanded: $showMoreColors) {
+                Button(action: { showMoreColors.toggle() }) {
+                    Text(showMoreColors ? "▾ More colors" : "▸ More colors")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(theme.tokens.mutedColor)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if showMoreColors {
                     ForEach(ThemeRoleSpec.advanced) { spec in
                         colorRow(spec, bindings: bindings)
                     }
                 }
             }
 
-            LabeledContent("Preview") {
+            row("Preview") {
                 ThemePreview(tokens: editedTokens)
             }
 
             if editedTokens.lowAccentContrast {
-                Label("The accent color is hard to see on this panel.", systemImage: "exclamationmark.triangle")
+                // Text, not Label/SF Symbols: the kit stays on the macOS 10.15 SDK.
+                Text("⚠ The accent color is hard to see on this panel.")
                     .font(.caption)
-                    .foregroundStyle(editedTokens.dangerColor)
+                    .foregroundColor(editedTokens.dangerColor)
             }
 
             if editedTokens.lowInkContrast {
-                Label("The text color has low contrast on this panel.", systemImage: "exclamationmark.triangle")
+                Text("⚠ The text color has low contrast on this panel.")
                     .font(.caption)
-                    .foregroundStyle(editedTokens.dangerColor)
+                    .foregroundColor(editedTokens.dangerColor)
             }
 
             HStack {
@@ -309,7 +359,7 @@ private struct ThemeRoleSpec: Identifiable {
                 .disabled(theme.isDefaultPalette)
             }
         }
-        .onChange(of: theme.appearance) { _, next in
+        .onReceive(theme.$appearance) { next in
             switch next {
             case .light: editingDark = false
             case .dark: editingDark = true
@@ -319,17 +369,17 @@ private struct ThemeRoleSpec: Identifiable {
     }
 
     private func colorRow(_ spec: ThemeRoleSpec, bindings: ThemeBindings) -> some View {
-        LabeledContent(spec.title) {
+        row(spec.title) {
             HStack(spacing: 8) {
                 if bindings.canResetToAuto(spec.role) {
                     Button("Auto") { bindings.resetToAuto(spec.role) }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(BorderlessButtonStyle())
                         .font(.caption)
-                        .foregroundStyle(theme.tokens.mutedColor)
-                        .help("Use automatic contrast-matched color")
+                        .foregroundColor(theme.tokens.mutedColor)
+                        .accessibility(label: Text("Use automatic contrast-matched color"))
                 }
-                ColorPicker(spec.title, selection: bindings.colorBinding(for: spec.role), supportsOpacity: false)
-                    .labelsHidden()
+                ColorWell(color: bindings.colorBinding(for: spec.role), accessibilityLabel: spec.title)
+                    .frame(width: 32, height: 18)
             }
         }
     }
@@ -337,8 +387,8 @@ private struct ThemeRoleSpec: Identifiable {
 
 /// Drop-in Settings card for Appearance mode, Theme preset selection (with swatches), core colors,
 /// expandable `More colors`, rich live preview, WCAG contrast warnings and Reset.
-@MainActor public struct ThemeSettingsSection: View {
-    @Bindable private var theme: ThemeStore
+public struct ThemeSettingsSection: View {
+    @ObservedObject private var theme: ThemeStore
     private let title: String
     private let offeredAppearances: [AppearanceChoice]
     private let presets: [ThemePreset]
@@ -361,17 +411,24 @@ private struct ThemeRoleSpec: Identifiable {
 
     private var activeEditingDark: Bool {
         switch theme.appearance {
-        case .light: false
-        case .dark: true
-        case .system: editingDark
+        case .light: return false
+        case .dark: return true
+        case .system: return editingDark
         }
     }
+
+    private var tokens: ThemeTokens { theme.tokens }
+    private var palette: PickerPalette { theme.pickerPalette }
+    private var bindings: ThemeBindings {
+        ThemeBindings(theme: theme, presets: presets, editingDark: activeEditingDark)
+    }
+    private var editedTokens: ThemeTokens { bindings.tokens }
 
     private func row<Control: View>(_ label: String, @ViewBuilder control: () -> Control) -> some View {
         HStack(spacing: 12) {
             Text(label)
                 .font(.system(size: 13))
-                .foregroundStyle(theme.tokens.inkColor)
+                .foregroundColor(theme.tokens.inkColor)
             Spacer(minLength: 12)
             control()
         }
@@ -381,9 +438,9 @@ private struct ThemeRoleSpec: Identifiable {
         HStack(spacing: 6) {
             Text(spec.title)
                 .font(.system(size: 12.5))
-                .foregroundStyle(theme.tokens.inkColor)
-            ColorPicker(spec.title, selection: bindings.colorBinding(for: spec.role), supportsOpacity: false)
-                .labelsHidden()
+                .foregroundColor(theme.tokens.inkColor)
+            ColorWell(color: bindings.colorBinding(for: spec.role), accessibilityLabel: spec.title)
+                .frame(width: 32, height: 18)
         }
     }
 
@@ -391,26 +448,21 @@ private struct ThemeRoleSpec: Identifiable {
         HStack(spacing: 8) {
             Text(spec.title)
                 .font(.system(size: 12.5))
-                .foregroundStyle(theme.tokens.inkColor)
+                .foregroundColor(theme.tokens.inkColor)
             Spacer(minLength: 8)
             if bindings.canResetToAuto(spec.role) {
                 Button("Auto") { bindings.resetToAuto(spec.role) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PlainButtonStyle())
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.tokens.mutedColor)
-                    .help("Use automatic contrast-matched color")
+                    .foregroundColor(theme.tokens.mutedColor)
+                    .accessibility(label: Text("Use automatic contrast-matched color"))
             }
-            ColorPicker(spec.title, selection: bindings.colorBinding(for: spec.role), supportsOpacity: false)
-                .labelsHidden()
+            ColorWell(color: bindings.colorBinding(for: spec.role), accessibilityLabel: spec.title)
+                .frame(width: 32, height: 18)
         }
     }
 
     public var body: some View {
-        let tokens = theme.tokens
-        let palette = theme.pickerPalette
-        let bindings = ThemeBindings(theme: theme, presets: presets, editingDark: activeEditingDark)
-        let editedTokens = bindings.tokens
-
         ThemedSection(title, tokens: tokens) {
             row("Mode") {
                 Picker("Mode", selection: $theme.appearance) {
@@ -419,7 +471,7 @@ private struct ThemeRoleSpec: Identifiable {
                     }
                 }
                 .labelsHidden()
-                .pickerStyle(.segmented)
+                .pickerStyle(SegmentedPickerStyle())
                 .frame(width: 220)
             }
 
@@ -450,7 +502,7 @@ private struct ThemeRoleSpec: Identifiable {
                             Text("Dark").tag(true)
                         }
                         .labelsHidden()
-                        .pickerStyle(.segmented)
+                        .pickerStyle(SegmentedPickerStyle())
                         .frame(width: 150)
                     }
                 }
@@ -465,24 +517,20 @@ private struct ThemeRoleSpec: Identifiable {
                     compactPicker(ThemeRoleSpec.core[2], bindings: bindings)
                 }
 
-                DisclosureGroup(isExpanded: $showMoreColors) {
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(minimum: 140), spacing: 16),
-                            GridItem(.flexible(minimum: 140), spacing: 16),
-                        ],
-                        alignment: .leading,
-                        spacing: 8
-                    ) {
+                Button(action: { showMoreColors.toggle() }) {
+                    Text(showMoreColors ? "▾ More colors" : "▸ More colors")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(tokens.mutedColor)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                if showMoreColors {
+                    VStack(alignment: .leading, spacing: 8) {
                         ForEach(ThemeRoleSpec.advanced) { spec in
                             detailColorRow(spec, bindings: bindings)
                         }
                     }
                     .padding(.top, 8)
-                } label: {
-                    Text("More colors")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(tokens.mutedColor)
                 }
             }
 
@@ -493,15 +541,16 @@ private struct ThemeRoleSpec: Identifiable {
             }
 
             if editedTokens.lowAccentContrast {
-                Label("The accent color is hard to see on this panel.", systemImage: "exclamationmark.triangle")
+                // Text, not Label/SF Symbols: the kit stays on the macOS 10.15 SDK.
+                Text("⚠ The accent color is hard to see on this panel.")
                     .font(.caption)
-                    .foregroundStyle(editedTokens.dangerColor)
+                    .foregroundColor(editedTokens.dangerColor)
             }
 
             if editedTokens.lowInkContrast {
-                Label("The text color has low contrast on this panel.", systemImage: "exclamationmark.triangle")
+                Text("⚠ The text color has low contrast on this panel.")
                     .font(.caption)
-                    .foregroundStyle(editedTokens.dangerColor)
+                    .foregroundColor(editedTokens.dangerColor)
             }
 
             HStack {
@@ -513,7 +562,7 @@ private struct ThemeRoleSpec: Identifiable {
                 .disabled(theme.isDefaultPalette)
             }
         }
-        .onChange(of: theme.appearance) { _, next in
+        .onReceive(theme.$appearance) { next in
             switch next {
             case .light: editingDark = false
             case .dark: editingDark = true
@@ -522,3 +571,4 @@ private struct ThemeRoleSpec: Identifiable {
         }
     }
 }
+#endif

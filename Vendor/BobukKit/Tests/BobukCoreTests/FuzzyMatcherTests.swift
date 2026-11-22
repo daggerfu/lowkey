@@ -1,117 +1,117 @@
-import Testing
+import XCTest
 @testable import BobukCore
 
-@Suite struct FuzzyMatcherTests {
+final class FuzzyMatcherTests: XCTestCase {
     private func kind(_ query: String, _ text: String) -> FuzzyMatchKind? { FuzzyMatcher.match(query, in: text)?.kind }
 
-    @Test func contiguousKinds() {
-        #expect(kind("safari", "Safari") == .exact)
-        #expect(kind("SAF", "Safari") == .prefix)
-        #expect(kind("visual studio code", "Visual Studio Code") == .exact)
-        #expect(kind("visualstu", "Visual Studio Code") == .prefix)
-        #expect(kind("code", "Visual Studio Code") == .wordStart)
-        #expect(kind("studio co", "Visual Studio Code") == .wordStart)
-        #expect(kind("vis co", "Visual Studio Code") == .wordStart)
-        #expect(kind("vsc", "Visual Studio Code") == .initials)
-        #expect(kind("udi", "Visual Studio Code") == .substring)
-        #expect(kind("time", "FaceTime") == .wordStart)
-        #expect(kind("ft", "FaceTime") == .initials)
-        #expect(kind("node.js", "Node.js") == .exact)
-        #expect(kind("7", "1Password 7") == .wordStart)
+    func testContiguousKinds() {
+        XCTAssertEqual(kind("safari", "Safari"), .exact)
+        XCTAssertEqual(kind("SAF", "Safari"), .prefix)
+        XCTAssertEqual(kind("visual studio code", "Visual Studio Code"), .exact)
+        XCTAssertEqual(kind("visualstu", "Visual Studio Code"), .prefix)
+        XCTAssertEqual(kind("code", "Visual Studio Code"), .wordStart)
+        XCTAssertEqual(kind("studio co", "Visual Studio Code"), .wordStart)
+        XCTAssertEqual(kind("vis co", "Visual Studio Code"), .wordStart)
+        XCTAssertEqual(kind("vsc", "Visual Studio Code"), .initials)
+        XCTAssertEqual(kind("udi", "Visual Studio Code"), .substring)
+        XCTAssertEqual(kind("time", "FaceTime"), .wordStart)
+        XCTAssertEqual(kind("ft", "FaceTime"), .initials)
+        XCTAssertEqual(kind("node.js", "Node.js"), .exact)
+        XCTAssertEqual(kind("7", "1Password 7"), .wordStart)
     }
 
-    @Test func scatteredLetters() {
-        #expect(kind("1pwd", "1Password") == .scattered)
-        #expect(kind("terminl", "Terminal") == .scattered)
-        #expect(kind("xcd", "Xcode") == .scattered)
-        #expect(kind("code vis", "Visual Studio Code") == nil)
-        #expect(kind("xyz", "Visual Studio Code") == nil)
+    func testScatteredLetters() {
+        XCTAssertEqual(kind("1pwd", "1Password"), .scattered)
+        XCTAssertEqual(kind("terminl", "Terminal"), .scattered)
+        XCTAssertEqual(kind("xcd", "Xcode"), .scattered)
+        XCTAssertEqual(kind("code vis", "Visual Studio Code"), nil)
+        XCTAssertEqual(kind("xyz", "Visual Studio Code"), nil)
     }
 
-    @Test func typos() {
+    func testTypos() {
         let wrong = FuzzyMatcher.match("1pvd", in: "1Password")
-        #expect(wrong?.kind == .typo)
-        #expect(wrong?.typos == 1)
-        #expect(kind("1pasxsword", "1Password") == .typo)
-        #expect(kind("setigns", "System Settings") == .typo)
+        XCTAssertEqual(wrong?.kind, .typo)
+        XCTAssertEqual(wrong?.typos, 1)
+        XCTAssertEqual(kind("1pasxsword", "1Password"), .typo)
+        XCTAssertEqual(kind("setigns", "System Settings"), .typo)
         // Short queries get no typos; the first letter never is one.
-        #expect(kind("1pv", "1Password") == nil)
-        #expect(kind("xpwd", "1Password") == nil)
+        XCTAssertEqual(kind("1pv", "1Password"), nil)
+        XCTAssertEqual(kind("xpwd", "1Password"), nil)
         // Two typos only from eight letters.
-        #expect(kind("1pazzwrd", "1Password")  == .typo)
-        #expect(kind("1pzzd", "1Password") == nil)
-        #expect(FuzzyMatcher.match("1pvd", in: "1Password", typos: false) == nil)
+        XCTAssertEqual(kind("1pazzwrd", "1Password") , .typo)
+        XCTAssertEqual(kind("1pzzd", "1Password"), nil)
+        XCTAssertEqual(FuzzyMatcher.match("1pvd", in: "1Password", typos: false), nil)
     }
 
-    @Test func fallbackTypoForThreeLetters() {
+    func testFallbackTypoForThreeLetters() {
         let query = FuzzyQuery("1pv")
-        #expect(query.hasFallback)
-        #expect(query.match("1Password") == nil)
-        #expect(query.match("1Password", fallback: true)?.kind == .typo)
-        #expect(!FuzzyQuery("1p").hasFallback)
-        #expect(!FuzzyQuery("1pwd").hasFallback)
-        #expect(!FuzzyQuery("1pv", typos: false).hasFallback)
-        #expect(FuzzyQuery("xpv").match("1Password", fallback: true) == nil)
+        XCTAssert(query.hasFallback)
+        XCTAssertEqual(query.match("1Password"), nil)
+        XCTAssertEqual(query.match("1Password", fallback: true)?.kind, .typo)
+        XCTAssert(!FuzzyQuery("1p").hasFallback)
+        XCTAssert(!FuzzyQuery("1pwd").hasFallback)
+        XCTAssert(!FuzzyQuery("1pv", typos: false).hasFallback)
+        XCTAssertEqual(FuzzyQuery("xpv").match("1Password", fallback: true), nil)
         // The filter falls back only when the normal pass matched nothing.
         let apps = ["1Password", "Safari", "Spotify", "Slack"]
-        #expect(FuzzyMatcher.filter(apps, matching: "1pv", texts: { [$0] }) == ["1Password"])
-        #expect(FuzzyMatcher.filter(apps, matching: "saf", texts: { [$0] }) == ["Safari"])
+        XCTAssertEqual(FuzzyMatcher.filter(apps, matching: "1pv", texts: { [$0] }), ["1Password"])
+        XCTAssertEqual(FuzzyMatcher.filter(apps, matching: "saf", texts: { [$0] }), ["Safari"])
     }
 
-    @Test func foldingAndLayouts() {
-        #expect(kind("cafe", "Café Racer") == .prefix)
-        #expect(kind("CAFÉ", "cafe") == .exact)
-        #expect(kind("елка", "Ёлка") == .exact)
-        #expect(kind("ыфафкш", "Safari") == .exact)
-        #expect(kind("ntktuhfv", "Телеграм") == .exact)
-        #expect(kind("ьуыыфпуы", "Messages") == .exact)
-        #expect(FuzzyMatcher.match("ыфафкш", in: "Safari", layoutSwap: false) == nil)
-        #expect(kind("strasse", "Straße") == .exact)
+    func testFoldingAndLayouts() {
+        XCTAssertEqual(kind("cafe", "Café Racer"), .prefix)
+        XCTAssertEqual(kind("CAFÉ", "cafe"), .exact)
+        XCTAssertEqual(kind("елка", "Ёлка"), .exact)
+        XCTAssertEqual(kind("ыфафкш", "Safari"), .exact)
+        XCTAssertEqual(kind("ntktuhfv", "Телеграм"), .exact)
+        XCTAssertEqual(kind("ьуыыфпуы", "Messages"), .exact)
+        XCTAssertEqual(FuzzyMatcher.match("ыфафкш", in: "Safari", layoutSwap: false), nil)
+        XCTAssertEqual(kind("strasse", "Straße"), .exact)
     }
 
-    @Test func emptyInputs() {
-        #expect(FuzzyMatcher.match("", in: "Safari") == nil)
-        #expect(FuzzyMatcher.match("  -", in: "Safari") == nil)
-        #expect(FuzzyMatcher.match("a", in: "") == nil)
-        #expect(FuzzyQuery(" - ").isEmpty)
+    func testEmptyInputs() {
+        XCTAssertEqual(FuzzyMatcher.match("", in: "Safari"), nil)
+        XCTAssertEqual(FuzzyMatcher.match("  -", in: "Safari"), nil)
+        XCTAssertEqual(FuzzyMatcher.match("a", in: ""), nil)
+        XCTAssert(FuzzyQuery(" - ").isEmpty)
     }
 
-    @Test func positionsForHighlighting() {
-        #expect(FuzzyMatcher.match("1pwd", in: "1Password")?.positions == [0, 1, 5, 8])
-        #expect(FuzzyMatcher.match("vsc", in: "Visual Studio Code")?.positions == [0, 7, 14])
-        #expect(FuzzyMatcher.match("saf", in: "Safari")?.positions == [0, 1, 2])
+    func testPositionsForHighlighting() {
+        XCTAssertEqual(FuzzyMatcher.match("1pwd", in: "1Password")?.positions, [0, 1, 5, 8])
+        XCTAssertEqual(FuzzyMatcher.match("vsc", in: "Visual Studio Code")?.positions, [0, 7, 14])
+        XCTAssertEqual(FuzzyMatcher.match("saf", in: "Safari")?.positions, [0, 1, 2])
         // Wrong and extra letters are not highlighted.
-        #expect(FuzzyMatcher.match("1pvd", in: "1Password")?.positions.count == 3)
+        XCTAssertEqual(FuzzyMatcher.match("1pvd", in: "1Password")?.positions.count, 3)
         // Offsets are characters of the original text, also after "ß" folds to "ss".
-        #expect(FuzzyMatcher.match("ae", in: "Straße")?.positions == [3, 5])
+        XCTAssertEqual(FuzzyMatcher.match("ae", in: "Straße")?.positions, [3, 5])
     }
 
-    @Test func scoresPreferWordStartsAndRuns() {
+    func testScoresPreferWordStartsAndRuns() {
         let boundary = FuzzyMatcher.match("bm", in: "BatMan")!
         let inside = FuzzyMatcher.match("bm", in: "Batman")!
-        #expect(boundary.score > inside.score)
+        XCTAssert(boundary.score > inside.score)
         let safari = FuzzyMatcher.match("sfri", in: "Safari")!
         let info = FuzzyMatcher.match("sfri", in: "System Information")!
-        #expect(safari.isBetter(than: info))
+        XCTAssert(safari.isBetter(than: info))
     }
 
-    @Test func filterOrdersByKindThenScoreThenInput() {
+    func testFilterOrdersByKindThenScoreThenInput() {
         let records = ["A", "AAAA", "CNAME", "MX", "TXT"]
-        #expect(FuzzyMatcher.filter(records, matching: "", texts: { [$0] }) == records)
-        #expect(FuzzyMatcher.filter(records, matching: "m", texts: { [$0] }) == ["MX", "CNAME"])
-        #expect(FuzzyMatcher.filter(records, matching: "x", texts: { [$0] }) == ["MX", "TXT"])
-        #expect(FuzzyMatcher.filter(records, matching: "q", texts: { [$0] }).isEmpty)
+        XCTAssertEqual(FuzzyMatcher.filter(records, matching: "", texts: { [$0] }), records)
+        XCTAssertEqual(FuzzyMatcher.filter(records, matching: "m", texts: { [$0] }), ["MX", "CNAME"])
+        XCTAssertEqual(FuzzyMatcher.filter(records, matching: "x", texts: { [$0] }), ["MX", "TXT"])
+        XCTAssert(FuzzyMatcher.filter(records, matching: "q", texts: { [$0] }).isEmpty)
         let apps = ["System Information", "Safari", "Screen Sharing", "Terminal"]
-        #expect(FuzzyMatcher.filter(apps, matching: "sfri", texts: { [$0] }).first == "Safari")
-        #expect(FuzzyMatcher.filter(apps, matching: "term", texts: { [$0] }) == ["Terminal", "System Information"])
+        XCTAssertEqual(FuzzyMatcher.filter(apps, matching: "sfri", texts: { [$0] }).first, "Safari")
+        XCTAssertEqual(FuzzyMatcher.filter(apps, matching: "term", texts: { [$0] }), ["Terminal", "System Information"])
         // Any of the item's texts may match.
         let pairs = [("one", "alpha"), ("two", "beta")]
-        #expect(FuzzyMatcher.filter(pairs, matching: "bet", texts: { [$0.0, $0.1] }).map(\.0) == ["two"])
+        XCTAssertEqual(FuzzyMatcher.filter(pairs, matching: "bet", texts: { [$0.0, $0.1] }).map(\.0), ["two"])
     }
 
-    @Test func longTextsGetContiguousMatchesOnly() {
+    func testLongTextsGetContiguousMatchesOnly() {
         let long = String(repeating: "lorem ipsum ", count: 60) + "needle"
-        #expect(FuzzyMatcher.match("needle", in: long)?.kind == .wordStart)
-        #expect(FuzzyMatcher.match("ndl", in: long) == nil)
+        XCTAssertEqual(FuzzyMatcher.match("needle", in: long)?.kind, .wordStart)
+        XCTAssertEqual(FuzzyMatcher.match("ndl", in: long), nil)
     }
 }

@@ -1,7 +1,8 @@
+#if canImport(AppKit)
 import AppKit
 
 /// The shared panel frame for AppKit and SwiftUI. No window/focus policy lives here.
-@MainActor public final class PickerSurfaceView: NSView {
+public final class PickerSurfaceView: NSView {
     public var palette: PickerPalette { didSet { needsDisplay = true } }
     /// 0...1 turns the accent rule into a loading bar; nil draws the solid rule.
     public var accentProgress: Double? { didSet { needsDisplay = true } }
@@ -30,7 +31,8 @@ import AppKit
             palette.accent.withAlphaComponent(0.3).setFill()
             rule.fill()
             palette.accent.setFill()
-            NSRect(x: rule.minX, y: rule.minY, width: rule.width * max(0.05, min(1, progress)), height: rule.height).fill()
+            let ratio = CGFloat(max(0.05, min(1, progress)))
+            NSRect(x: rule.minX, y: rule.minY, width: rule.width * ratio, height: rule.height).fill()
         } else {
             palette.accent.setFill()
             rule.fill()
@@ -49,3 +51,4 @@ import AppKit
         return hit === self ? nil : hit
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(Carbon)
 // Layout-aware key translation, from Ting. Shared with panels that route ⌘C/⌘V by the Latin key.
 import AppKit
 import Carbon
@@ -5,7 +6,6 @@ import Carbon
 /// Translates physical key codes through keyboard layouts.
 /// Bindings store the character of the user's ASCII-capable layout:
 /// with the Russian layout active, the key labelled Ф/A still means "a".
-@MainActor
 public enum KeyTranslator {
     private struct Layout {
         let id: String
@@ -16,7 +16,7 @@ public enum KeyTranslator {
     private static var hints: (key: String, hints: [String: String])?
 
     private static func layout(_ source: TISInputSource?) -> Layout? {
-        guard let source,
+        guard let source = source,
               let dataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData),
               let idPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return nil }
         let data = Unmanaged<CFData>.fromOpaque(dataPointer).takeUnretainedValue() as Data
@@ -41,7 +41,7 @@ public enum KeyTranslator {
             let status = UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
                                         OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars)
             guard status == noErr, length > 0 else { return nil }
-            return String(utf16CodeUnits: chars, count: length).lowercased()
+            return String(utf16CodeUnits: chars, count: Int(length)).lowercased()
         }
     }
 
@@ -78,3 +78,4 @@ public enum KeyTranslator {
         return hint.isEmpty ? nil : hint
     }
 }
+#endif

@@ -9,22 +9,22 @@ public enum JSONFileStoreError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .unreadable(let path, let reason): "\(path) cannot be read: \(reason)"
+        case .unreadable(let path, let reason): return "\(path) cannot be read: \(reason)"
         }
     }
 }
 
 /// Stores one `Value` as pretty, key-sorted JSON written with `SafeFile.write`.
-public struct JSONFileStore<Value: Codable>: Sendable where Value: Sendable {
+public struct JSONFileStore<Value: Codable> {
     /// What to do with a file that exists but does not decode.
-    public enum CorruptPolicy: Sendable, Equatable {
+    public enum CorruptPolicy: Equatable {
         /// Report it; `save` refuses to overwrite it until the user fixes or removes it.
         case refuseWrites
         /// Move it aside to `<name>.corrupt-<timestamp>` and start from the default value.
         case backUp
     }
 
-    public enum Loaded: Sendable {
+    public enum Loaded {
         /// No file yet: the default value.
         case missing(Value)
         case loaded(Value)
@@ -35,17 +35,17 @@ public struct JSONFileStore<Value: Codable>: Sendable where Value: Sendable {
 
         public var value: Value? {
             switch self {
-            case .missing(let value), .loaded(let value), .recovered(let value, _): value
-            case .unreadable: nil
+            case .missing(let value), .loaded(let value), .recovered(let value, _): return value
+            case .unreadable: return nil
             }
         }
     }
 
     public let url: URL
     public let policy: CorruptPolicy
-    private let makeDefault: @Sendable () -> Value
+    private let makeDefault: () -> Value
 
-    public init(url: URL, policy: CorruptPolicy = .refuseWrites, default makeDefault: @escaping @Sendable () -> Value) {
+    public init(url: URL, policy: CorruptPolicy = .refuseWrites, default makeDefault: @escaping () -> Value) {
         self.url = url
         self.policy = policy
         self.makeDefault = makeDefault
@@ -72,7 +72,10 @@ public struct JSONFileStore<Value: Codable>: Sendable where Value: Sendable {
 
     /// Writes `value`. Under `.refuseWrites` an existing unreadable file is never replaced.
     public func save(_ value: Value) throws {
-        if policy == .refuseWrites, case .unreadable(let problem) = load() { throw problem }
+        if policy == .refuseWrites {
+            let loaded = load()
+            if case .unreadable(let problem) = loaded { throw problem }
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try SafeFile.write(encoder.encode(value), to: url)

@@ -1,10 +1,11 @@
+#if canImport(AppKit)
 // Connects SwiftUI content to its own host window (never `NSApp.keyWindow`, which may belong to
 // another window or nothing), and pins AppKit views edge to edge.
 import AppKit
 import SwiftUI
 
 /// The window that hosts a SwiftUI view. Set by `.windowReference(_:)`.
-@MainActor public final class WindowReference {
+public final class WindowReference {
     public weak var window: NSWindow?
     public init() {}
     /// Closes the host through `performClose`.
@@ -43,7 +44,7 @@ private struct WindowReader: NSViewRepresentable {
 
 public extension NSView {
     /// Adds the view to `container` and pins it to all edges (or below `top`).
-    @MainActor func pinEdges(to container: NSView, top: NSLayoutYAxisAnchor? = nil) {
+    func pinEdges(to container: NSView, top: NSLayoutYAxisAnchor? = nil) {
         translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(self)
         NSLayoutConstraint.activate([
@@ -54,3 +55,4 @@ public extension NSView {
         ])
     }
 }
+#endif

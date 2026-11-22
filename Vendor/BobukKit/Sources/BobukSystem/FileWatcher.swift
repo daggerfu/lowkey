@@ -1,18 +1,29 @@
-// Watches one file for changes from any editor, from Ting's config store: the folder (editors
+// Watches one file for changes from every editor, from Ting's config store: the folder (editors
 // often replace the file) and the file itself (in-place saves), coalescing the burst of one save.
+// macOS watches file descriptors; Linux polls the modification stamps on a timer.
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
-@MainActor
+#if canImport(Darwin)
+private typealias FileSystemSource = DispatchSourceFileSystemObject
+#else
+// Linux never creates one (polling timer instead); the alias only stores the shared state.
+private typealias FileSystemSource = DispatchSourceTimer
+#endif
+
 public final class FileWatcher {
     public let url: URL
     /// True for a folder watcher: the folder and every file directly in it.
     public let watchesFolder: Bool
     private let debounce: TimeInterval
     private let onChange: () -> Void
-    private var directorySource: DispatchSourceFileSystemObject?
-    private var fileSource: DispatchSourceFileSystemObject?
-    private var folderFileSources: [DispatchSourceFileSystemObject] = []
+    private var directorySource: FileSystemSource?
+    private var fileSource: FileSystemSource?
+    private var folderFileSources: [FileSystemSource] = []
     private var pending: DispatchWorkItem?
 
     /// Watches one file. Starts at once; the file may not exist yet, its folder must.
@@ -41,6 +52,7 @@ public final class FileWatcher {
         fileSource?.cancel()
         for source in folderFileSources { source.cancel() }
         pending?.cancel()
+        linuxTimer?.cancel()
     }
 
     /// Call after the app itself wrote the file: an atomic write replaced the watched inode.
@@ -51,9 +63,11 @@ public final class FileWatcher {
         fileSource?.cancel()
         for source in folderFileSources { source.cancel() }
         pending?.cancel()
+        linuxTimer?.cancel()
         directorySource = nil
         fileSource = nil
         folderFileSources = []
+        linuxTimer = nil
     }
 
     private func watchFile() {
@@ -68,14 +82,15 @@ public final class FileWatcher {
             .compactMap { makeSource(path: $0.path) }
     }
 
-    private func makeSource(path: String) -> DispatchSourceFileSystemObject? {
+    #if canImport(Darwin)
+    private func makeSource(path: String) -> FileSystemSource? {
         let descriptor = open(path, O_EVTONLY)
         guard descriptor >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
                                                                eventMask: [.write, .delete, .rename, .extend],
                                                                queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.schedule() }
+            self?.schedule()
         }
         source.setCancelHandler { close(descriptor) }
         source.resume()
@@ -85,13 +100,65 @@ public final class FileWatcher {
     private func schedule() {
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.watchFile()
-                self.onChange()
-            }
+            guard let self = self else { return }
+            self.watchFile()
+            self.onChange()
         }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + debounce, execute: work)
     }
+    #else
+    // Linux: libdispatch has no VNODE sources, so a timer polls the modification stamps.
+    // `signature` captures everything watched; a difference is one coalesced change.
+    private var linuxTimer: DispatchSourceTimer?
+    private var linuxSignature: [String: Date]?
+
+    private func makeSource(path: String) -> FileSystemSource? {
+        if linuxTimer == nil {
+            linuxSignature = linuxStamps()
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now(), repeating: max(debounce, 0.05))
+            timer.setEventHandler { [weak self] in self?.linuxPoll() }
+            timer.resume()
+            linuxTimer = timer
+        }
+        return nil
+    }
+
+    private func linuxPoll() {
+        let stamp = linuxSignature ?? [:]
+        let next = linuxStamps()
+        guard next != stamp else { return }
+        linuxSignature = next
+        schedule()
+    }
+
+    private func linuxStamps() -> [String: Date] {
+        func stamp(_ path: String) -> Date? {
+            let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.contentModificationDateKey])
+            return values?.contentModificationDate
+        }
+        var result: [String: Date] = [:]
+        if watchesFolder {
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+            for name in files {
+                let path = url.appendingPathComponent(name).path
+                if let date = stamp(path) { result[path] = date }
+            }
+        } else if let date = stamp(url.path) {
+            result[url.path] = date
+        }
+        // A file replaced between polls (new inode, same name) still changes the folder's stamp;
+        // watching the parent catches it even when the mtime resolution hides the file's own.
+        if let parent = stamp(url.deletingLastPathComponent().path) {
+            result[url.deletingLastPathComponent().path] = parent
+        }
+        return result
+    }
+
+    private func schedule() {
+        watchFile()
+        onChange()
+    }
+    #endif
 }

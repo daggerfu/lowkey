@@ -2,7 +2,7 @@
 import Foundation
 
 /// How a query matches a text. Smaller is better.
-public enum FuzzyMatchKind: Int, Comparable, Sendable, CaseIterable {
+public enum FuzzyMatchKind: Int, Comparable, CaseIterable {
     /// The whole text, ignoring case, diacritics, spaces and punctuation.
     case exact
     /// The start of the text.
@@ -25,7 +25,7 @@ public enum FuzzyMatchKind: Int, Comparable, Sendable, CaseIterable {
 }
 
 /// One match of a query in a text.
-public struct FuzzyMatch: Sendable, Equatable {
+public struct FuzzyMatch: Equatable {
     public let kind: FuzzyMatchKind
     /// Alignment score, higher is better. Compare scores of one query only.
     public let score: Int
@@ -49,8 +49,8 @@ public struct FuzzyMatch: Sendable, Equatable {
 /// which callers run when the normal pass found nothing in the whole list: "1pv" → "1Password"
 /// without a typo match for every "saf". Case, diacritics and width are ignored, and the query is
 /// also tried as typed on the wrong keyboard layout (`KeyboardLayoutSwap`).
-public struct FuzzyQuery: Sendable {
-    struct Variant: Sendable {
+public struct FuzzyQuery {
+    struct Variant {
         /// Folded query words.
         let words: [String]
         /// The words joined.

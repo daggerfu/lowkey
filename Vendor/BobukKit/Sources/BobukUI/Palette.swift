@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 // Light/dark colors from hex values, the shared bobuk-io amber palette and the app-wide
 // appearance choice. Apps keep their own colors where they differ; identical values live here.
 import AppKit
@@ -19,7 +20,7 @@ public extension NSColor {
 }
 
 public extension Color {
-    static func dynamic(light: UInt32, dark: UInt32) -> Color { Color(nsColor: .dynamic(light: light, dark: dark)) }
+    static func dynamic(light: UInt32, dark: UInt32) -> Color { Color(NSColor.dynamic(light: light, dark: dark)) }
 }
 
 /// The graphite-and-amber colors shared by Ting, Splash Finish and lowkey's Amber preset.
@@ -52,29 +53,29 @@ public extension PickerPalette {
 }
 
 /// The app-wide appearance the user picks in Settings.
-public enum AppearanceChoice: String, CaseIterable, Codable, Identifiable, Sendable {
+public enum AppearanceChoice: String, CaseIterable, Codable, Identifiable {
     case system, light, dark
 
     public var id: String { rawValue }
     public var title: String {
         switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
         }
     }
 
     /// nil follows System Settings.
     public var appearance: NSAppearance? {
         switch self {
-        case .system: nil
-        case .light: NSAppearance(named: .aqua)
-        case .dark: NSAppearance(named: .darkAqua)
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
         }
     }
 
     /// Sets `NSApp.appearance`, so every window, panel and menu of the app matches.
-    @MainActor public func apply() { NSApp.appearance = appearance }
+    public func apply() { NSApp.appearance = appearance }
 
     /// The stored choice under `key`, or `fallback` (Splash Finish keeps dark by default).
     public static func stored(in defaults: UserDefaults = .standard, key: String,
@@ -82,3 +83,4 @@ public enum AppearanceChoice: String, CaseIterable, Codable, Identifiable, Senda
         defaults.string(forKey: key).flatMap(AppearanceChoice.init(rawValue:)) ?? fallback
     }
 }
+#endif

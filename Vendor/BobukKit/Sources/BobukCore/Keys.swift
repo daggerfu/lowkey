@@ -60,14 +60,14 @@ public enum SequenceKey {
         default: break
         }
         if let function = functionKeyCodes[keyCode] { return function }
-        guard let latin, latin.unicodeScalars.count == 1, let scalar = latin.unicodeScalars.first,
+        guard let latin = latin, latin.unicodeScalars.count == 1, let scalar = latin.unicodeScalars.first,
               scalar.isASCII, CharacterSet.alphanumerics.contains(scalar) else { return nil }
         return latin.lowercased()
     }
 }
 
 /// Physical modifier keys. Raw value is the config token.
-public enum ModifierKey: String, CaseIterable, Codable, Sendable {
+public enum ModifierKey: String, CaseIterable, Codable {
     case leftCommand = "left-cmd", rightCommand = "right-cmd"
     case leftShift = "left-shift", rightShift = "right-shift"
     case leftOption = "left-option", rightOption = "right-option"
@@ -78,15 +78,15 @@ public enum ModifierKey: String, CaseIterable, Codable, Sendable {
     /// leftOption 58, rightOption 61, leftControl 59, rightControl 62, function 63.
     public var keyCode: UInt16 {
         switch self {
-        case .leftCommand: 55
-        case .rightCommand: 54
-        case .leftShift: 56
-        case .rightShift: 60
-        case .leftOption: 58
-        case .rightOption: 61
-        case .leftControl: 59
-        case .rightControl: 62
-        case .function: 63
+        case .leftCommand: return 55
+        case .rightCommand: return 54
+        case .leftShift: return 56
+        case .rightShift: return 60
+        case .leftOption: return 58
+        case .rightOption: return 61
+        case .leftControl: return 59
+        case .rightControl: return 62
+        case .function: return 63
         }
     }
 
@@ -98,32 +98,32 @@ public enum ModifierKey: String, CaseIterable, Codable, Sendable {
     /// The modifier flag this key sets.
     public var flag: ModifierSet {
         switch self {
-        case .leftCommand, .rightCommand: .command
-        case .leftShift, .rightShift: .shift
-        case .leftOption, .rightOption: .option
-        case .leftControl, .rightControl: .control
-        case .function: .function
+        case .leftCommand, .rightCommand: return .command
+        case .leftShift, .rightShift: return .shift
+        case .leftOption, .rightOption: return .option
+        case .leftControl, .rightControl: return .control
+        case .function: return .function
         }
     }
 
     /// "Left ⌘", "Right ⌘", "Left ⇧", "Right ⇧", "Left ⌥", "Right ⌥", "Left ⌃", "Right ⌃", "fn".
     public var display: String {
         switch self {
-        case .leftCommand: "Left ⌘"
-        case .rightCommand: "Right ⌘"
-        case .leftShift: "Left ⇧"
-        case .rightShift: "Right ⇧"
-        case .leftOption: "Left ⌥"
-        case .rightOption: "Right ⌥"
-        case .leftControl: "Left ⌃"
-        case .rightControl: "Right ⌃"
-        case .function: "fn"
+        case .leftCommand: return "Left ⌘"
+        case .rightCommand: return "Right ⌘"
+        case .leftShift: return "Left ⇧"
+        case .rightShift: return "Right ⇧"
+        case .leftOption: return "Left ⌥"
+        case .rightOption: return "Right ⌥"
+        case .leftControl: return "Left ⌃"
+        case .rightControl: return "Right ⌃"
+        case .function: return "fn"
         }
     }
 }
 
 /// Modifier flags, independent of AppKit.
-public struct ModifierSet: OptionSet, Hashable, Sendable {
+public struct ModifierSet: OptionSet, Hashable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     public static let control = ModifierSet(rawValue: 1 << 0)
@@ -202,7 +202,7 @@ public enum KeyCodes {
 ///   Parsing is case-insensitive, accepts any order and aliases "control", "alt", "opt", "command",
 ///   and the key name alias "pause" for "f15" (the string stays "f15", the display "F15").
 /// - modifierTap: the `ModifierKey` raw value, e.g. "right-option".
-public enum Hotkey: Equatable, Hashable, Sendable, Codable {
+public enum Hotkey: Equatable, Hashable, Codable {
     case combo(keyCode: UInt16, modifiers: ModifierSet)
     case modifierTap(ModifierKey)
 
@@ -226,8 +226,8 @@ public enum Hotkey: Equatable, Hashable, Sendable, Codable {
                 return nil
             }
         }
-        guard let keyCode else { return nil }
-        self = .combo(keyCode: keyCode, modifiers: modifiers)
+        guard let code = keyCode else { return nil }
+        self = .combo(keyCode: code, modifiers: modifiers)
     }
 
     private static let modifierTokens: [String: ModifierSet] = [
@@ -312,7 +312,7 @@ public enum Hotkey: Equatable, Hashable, Sendable, Codable {
 }
 
 /// Detects "press one modifier key and release it with nothing in between".
-public struct ModifierTapDetector: Sendable {
+public struct ModifierTapDetector {
     private let maxDuration: TimeInterval
     private var candidate: ModifierKey?
     private var pressedAt: TimeInterval = 0

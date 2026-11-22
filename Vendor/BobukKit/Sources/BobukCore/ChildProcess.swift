@@ -1,16 +1,26 @@
 // Runs one program in its own process group, feeds stdin, collects stdout and stderr apart,
 // and stops the whole group on a time limit or on cancel. From Ting's micro-app runner.
 // Use it instead of `Process` for anything with a time limit, a large output or a cancel.
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+
+/// Glibc has `posix_spawn_file_actions_addchdir` (2.29+) but Swift's Glibc module does not
+/// declare it: bind the symbol directly.
+@_silgen_name("posix_spawn_file_actions_addchdir_np")
+func posix_spawn_file_actions_addchdir_glibc(_ actions: UnsafeMutablePointer<posix_spawn_file_actions_t>,
+                                             _ path: UnsafePointer<CChar>) -> Int32
+#endif
 import Foundation
 
 /// Bytes that reach a program's stdin while it runs, such as the output of the step before it.
-public protocol ChildProcessStdinSource: AnyObject, Sendable {
+public protocol ChildProcessStdinSource: AnyObject {
     /// The bytes that came since the last call, and `true` once no more will come. Never blocks.
     func takeAvailable() -> (data: Data, finished: Bool)
 }
 
-public struct ChildProcessRequest: Sendable {
+public struct ChildProcessRequest {
     public var executable: String
     /// Without the program name; `executable` becomes `argv[0]`.
     public var arguments: [String]
@@ -23,14 +33,14 @@ public struct ChildProcessRequest: Sendable {
     /// More stdin after `stdin`, while it comes; `nil` closes stdin after `stdin`.
     public var stdinSource: ChildProcessStdinSource?
     /// Each stdout chunk as it comes, also past the limit.
-    public var onStdout: (@Sendable (Data) -> Void)?
+    public var onStdout: ((Data) -> Void)?
 
     public static let defaultOutputLimit = 1_048_576
 
     public init(executable: String, arguments: [String] = [], environment: [String: String] = [:],
                 workingDirectory: String = "/", stdin: Data = Data(), timeLimit: TimeInterval,
                 outputLimit: Int = ChildProcessRequest.defaultOutputLimit,
-                stdinSource: ChildProcessStdinSource? = nil, onStdout: (@Sendable (Data) -> Void)? = nil) {
+                stdinSource: ChildProcessStdinSource? = nil, onStdout: ((Data) -> Void)? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
@@ -43,8 +53,8 @@ public struct ChildProcessRequest: Sendable {
     }
 }
 
-public struct ChildProcessOutcome: Sendable {
-    public enum End: Equatable, Sendable {
+public struct ChildProcessOutcome {
+    public enum End: Equatable {
         /// The exit code; 128 + the signal number when a signal ended the program.
         case exited(Int32)
         case timedOut
@@ -73,7 +83,7 @@ public struct ChildProcessOutcome: Sendable {
 }
 
 /// A cancel switch that the waiting thread checks.
-public final class ChildProcessCancel: @unchecked Sendable {
+public final class ChildProcessCancel {
     private let lock = NSLock()
     private var flag = false
 
@@ -89,20 +99,19 @@ public enum ChildProcess {
     public static let drainGrace: TimeInterval = 1
     private static let tick: Int32 = 20 // ms
 
-    /// Runs the request on its own thread. Cancelling the task stops the program and its children.
-    public static func run(_ request: ChildProcessRequest) async -> ChildProcessOutcome {
-        let cancel = ChildProcessCancel()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<ChildProcessOutcome, Never>) in
-                let thread = Thread {
-                    continuation.resume(returning: runBlocking(request, cancel: cancel))
-                }
-                thread.name = "io.bobuk.child-process"
-                thread.start()
-            }
-        } onCancel: {
-            cancel.cancel()
+    /// Runs the request on its own thread. `cancel` can stop the program and its children.
+    public static func run(_ request: ChildProcessRequest, cancel: ChildProcessCancel = ChildProcessCancel(),
+                           completion: @escaping (ChildProcessOutcome) -> Void) {
+        let thread = Thread {
+            completion(runBlocking(request, cancel: cancel))
         }
+        thread.name = "io.bobuk.child-process"
+        thread.start()
+    }
+
+    /// Synchronous convenience for tests and short-lived commands.
+    public static func run(_ request: ChildProcessRequest, cancel: ChildProcessCancel = ChildProcessCancel()) -> ChildProcessOutcome {
+        runBlocking(request, cancel: cancel)
     }
 
     /// Blocks until the program, its children and its pipes are done.
@@ -132,7 +141,11 @@ public enum ChildProcess {
         }
 
         // Writing to a closed stdin gives EPIPE instead of killing the app with SIGPIPE.
+        #if canImport(Darwin)
         _ = fcntl(inPipe[1], F_SETNOSIGPIPE, 1)
+        #else
+        _ = signal(SIGPIPE, SIG_IGN)
+        #endif
         for fd in [inPipe[1], outPipe[0], errPipe[0]] {
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         }
@@ -151,7 +164,7 @@ public enum ChildProcess {
         var drainUntil: Date?
         var buffer = [UInt8](repeating: 0, count: 65_536)
 
-        func readAvailable(_ fd: inout Int32, into data: inout Data, cut: inout Bool, onChunk: (@Sendable (Data) -> Void)? = nil) {
+        func readAvailable(_ fd: inout Int32, into data: inout Data, cut: inout Bool, onChunk: ((Data) -> Void)? = nil) {
             while fd >= 0 {
                 let n = read(fd, &buffer, buffer.count)
                 if n > 0 {
@@ -180,7 +193,7 @@ public enum ChildProcess {
                 }
             }
             if exitCode != nil, stdoutFD < 0, stderrFD < 0 { break }
-            if let drainUntil, Date() >= drainUntil { break }
+            if let deadline = drainUntil, Date() >= deadline { break }
 
             // Time limit and cancel.
             if exitCode == nil {
@@ -240,8 +253,8 @@ public enum ChildProcess {
         }
 
         closeAll([stdinFD, stdoutFD, stderrFD])
-        if let stopReason {
-            outcome.end = stopReason
+        if let reason = stopReason {
+            outcome.end = reason
         } else {
             outcome.end = .exited(exitCode ?? -1)
         }
@@ -275,6 +288,7 @@ public enum ChildProcess {
     }
 
     private static func spawn(_ request: ChildProcessRequest, stdin: Int32, stdout: Int32, stderr: Int32) -> SpawnResult {
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
@@ -297,6 +311,32 @@ public enum ChildProcess {
         sigemptyset(&none)
         posix_spawnattr_setsigdefault(&attributes, &all)
         posix_spawnattr_setsigmask(&attributes, &none)
+        #else
+        var actions = posix_spawn_file_actions_t()
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_adddup2(&actions, stdin, 0)
+        posix_spawn_file_actions_adddup2(&actions, stdout, 1)
+        posix_spawn_file_actions_adddup2(&actions, stderr, 2)
+        // Glibc has posix_spawn_file_actions_addchdir (2.29+) but Swift's Glibc module does not
+        // declare it: bind the symbol directly.
+        _ = request.workingDirectory.withCString { posix_spawn_file_actions_addchdir_glibc(&actions, $0) }
+
+        var attributes = posix_spawnattr_t()
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        // Own process group (setpgid 0 makes the child a group leader, like setsid on macOS), so
+        // the program and its children can be stopped together. Default signal handling and an
+        // empty signal mask; the pipe descriptors above are already FD_CLOEXEC.
+        posix_spawnattr_setpgroup(&attributes, 0)
+        let flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK
+        posix_spawnattr_setflags(&attributes, Int16(flags))
+        var all = sigset_t(), none = sigset_t()
+        sigfillset(&all)
+        sigemptyset(&none)
+        posix_spawnattr_setsigdefault(&attributes, &all)
+        posix_spawnattr_setsigmask(&attributes, &none)
+        #endif
 
         let argv = ([request.executable] + request.arguments).map { strdup($0) } + [nil]
         let envp = request.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]

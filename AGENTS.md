@@ -7,7 +7,7 @@
 - Native macOS browser: AppKit, WebKit, SwiftUI settings. Bundle identifier
   `io.bobuk.lowkey`; use `io.bobuk` for new identifiers.
 - Repository: `bobuk-io/lowkey`. Never publish browser profiles or website data.
-- Shared UI and infrastructure come from BobukKit (`Vendor/BobukKit`, read-only); read
+- Shared UI and infrastructure come from BobukKit (`Vendor/BobukKit`); read
   `../BobukKit/README.md` before adding windows, panels, controls, hotkeys, file stores,
   processes or update code here, and follow `../AGENTS.md`. The release kit in
   `Scripts/release/` is a managed copy of `../BobukKit/ReleaseKit`; never edit it here.

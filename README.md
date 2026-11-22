@@ -3,7 +3,7 @@
 A minimal macOS browser built with AppKit and the system WebKit. No tabs, no
 permanent address bar. Saved sites open by alias, each with its own persistent profile.
 
-**macOS 14 or later · Apple Silicon and Intel · 0BSD.** Official release ZIPs are
+**macOS 10.15 or later · Intel · 0BSD.** Official release ZIPs are
 Developer ID signed, notarized and stapled. The public product name is always
 **lowkey**, in lowercase; historical Swift identifiers and storage paths are unchanged.
 

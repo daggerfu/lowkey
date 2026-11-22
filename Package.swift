@@ -1,11 +1,23 @@
 // swift-tools-version:5.3
 import PackageDescription
 
-let package = Package(
-    name: "Lowkey",
-    platforms: [.macOS(.v10_15)],
-    dependencies: [.package(path: "Vendor/BobukKit")],
-    targets: [
+// macOS: the AppKit/WebKit browser (LowkeyLib), the CLI, the core logic and tests.
+// Linux (Ubuntu): the same core and CLI plus a GTK 4 / WebKitGTK 6.0 app (LowkeyLinux).
+// BobukCore provides the local IPC; it already has a Linux Unix-socket backend.
+#if os(Linux)
+let targets: [Target] = [
+    .target(name: "LowkeyCore", dependencies: [.product(name: "BobukCore", package: "BobukKit")],
+            path: "Sources/LowkeyCore"),
+    .target(name: "lowkeyctl", dependencies: ["LowkeyCore", .product(name: "BobukCore", package: "BobukKit")],
+            path: "Sources/lowkeyctl"),
+    .systemLibrary(name: "CGTK", path: "Sources/CGTK",
+                   pkgConfig: "webkitgtk-6.0",
+                   providers: [.apt(["libwebkitgtk-6.0-dev"])]),
+    .target(name: "LowkeyLinux", dependencies: ["LowkeyCore", "CGTK"], path: "Sources/LowkeyLinux"),
+    .testTarget(name: "LowkeyCoreTests", dependencies: ["LowkeyCore"], path: "Tests/LowkeyCoreTests"),
+]
+#else
+let targets: [Target] = [
         // Pure logic: configuration, deep links, address input, history, link policy, themes. No AppKit.
         // BobukCore is Foundation-only (layout swap, recent list, message port).
         .target(name: "LowkeyCore", dependencies: [.product(name: "BobukCore", package: "BobukKit")],
@@ -22,4 +34,11 @@ let package = Package(
         .testTarget(name: "LowkeyCoreTests", dependencies: ["LowkeyCore"], path: "Tests/LowkeyCoreTests"),
         .testTarget(name: "LowkeyAppTests", dependencies: ["LowkeyLib", .product(name: "BobukUI", package: "BobukKit")], path: "Tests/LowkeyAppTests"),
     ]
+#endif
+
+let package = Package(
+    name: "Lowkey",
+    platforms: [.macOS(.v10_15)],
+    dependencies: [.package(path: "Vendor/BobukKit")],
+    targets: targets
 )

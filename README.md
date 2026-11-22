@@ -2,6 +2,8 @@
 
 A minimal macOS browser built with AppKit and the system WebKit. No tabs, no
 permanent address bar. Saved sites open by alias, each with its own persistent profile.
+An experimental Ubuntu build (GTK 4 + WebKitGTK 6.0) is described in
+[docs/UBUNTU.md](docs/UBUNTU.md).
 
 **macOS 10.15 or later · Intel · 0BSD.** Official release ZIPs are
 Developer ID signed, notarized and stapled. The public product name is always
@@ -99,6 +101,35 @@ automatically. Alias matching ignores case; a stable UUID identifies the profile
   "appearance": { "mode": "tint" }
 }
 ```
+
+### SOCKS proxies
+
+Saved sites can open through a named SOCKS proxy. Proxies and always-proxied
+hosts are edited in `config.json` (Settings only picks a proxy per site):
+
+```json
+{
+  "proxies": [{
+    "name": "tor",
+    "host": "127.0.0.1",
+    "port": 9050,
+    "username": "optional",
+    "password": "optional"
+  }],
+  "proxyDomains": [{ "proxy": "tor", "hosts": ["example.com", "*.onion"] }]
+}
+```
+
+A site with `"proxy": "tor"` always opens through it. `proxyDomains` routes
+saved sites whose start host matches a rule: `example.com` matches the host
+and its subdomains, `*.example.com` matches subdomains only. Only saved sites
+can be routed — ordinary windows share the default WebKit store, which has no
+per-window proxy. Sign-in and popup windows share the routed site's profile.
+A proxy applies to site windows opened after saving. WKWebView has no public
+proxy API: lowkey applies the configuration through WebKit's private store
+configuration when the OS provides it, and opens the site without a proxy
+(newest macOS only) otherwise. Credentials are passed for SOCKS5; without
+them SOCKS4 is used.
 
 The start origin (scheme, host, port) and extra origins count as internal. Subdomains
 are external unless allowed; `*.example.com` excludes the bare host. Clicked external
@@ -241,7 +272,9 @@ There are no extensions or password-manager integration. See [SECURITY.md](SECUR
 
 ## Build and develop
 
-Swift 6.2 / Xcode 26 or later, on macOS:
+Swift 6.2 / Xcode 26 or later, on macOS. An experimental Ubuntu port
+(GTK 4 + WebKitGTK 6.0) lives in `Sources/LowkeyLinux`; see
+[docs/UBUNTU.md](docs/UBUNTU.md) for its build steps and parity notes.
 
 ```sh
 git clone https://github.com/bobuk-io/lowkey.git

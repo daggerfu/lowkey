@@ -197,7 +197,8 @@ final class AppController {
         }
         guard let url = site.url else { return nil }
         let controller = BrowserWindowController(kind: .saved(site.id), startURL: url,
-                                                 dataStore: Self.siteDataStore(id: site.id), app: self)
+                                                 dataStore: SiteStoreFactory.make(id: site.id, proxy: store.config.proxy(for: site)),
+                                                 app: self)
         siteWindows[site.id] = controller
         controller.updateCloseGlyph(commandHeld: commandHeld)
         controller.load(url)
@@ -207,18 +208,8 @@ final class AppController {
 
     /// Persistent per-site profiles need `WKWebsiteDataStore(forIdentifier:)`, macOS 11 SDK.
     /// Catalina shares the default store: sites still get windows and link policy, but not
-    /// separate cookies. Kept behind `#if compiler` because the symbol is absent from the 10.15 SDK.
-    static func siteDataStore(id: UUID) -> WKWebsiteDataStore {
-        #if compiler(>=5.4)
-        if #available(macOS 11, *) {
-            return WKWebsiteDataStore(forIdentifier: id)
-        } else {
-            return .default()
-        }
-        #else
-        return .default()
-        #endif
-    }
+    /// separate cookies. The store comes from `SiteStoreFactory`, which can also route the
+    /// profile through the site's SOCKS proxy.
 
     func openOrdinary(_ url: URL, near window: NSWindow? = nil) {
         let controller = BrowserWindowController(kind: .ordinary, startURL: url, dataStore: .default(), app: self)

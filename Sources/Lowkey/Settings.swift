@@ -231,12 +231,27 @@ private struct SitesPane: View {
                 Text("Open in the default browser").tag(ExternalLinkPolicy.defaultBrowser)
                 Text("Open in lowkey").tag(ExternalLinkPolicy.lowkey)
             }
+            SettingsRow("Proxy") {
+                Picker("", selection: proxyName) {
+                    Text("None").tag("")
+                    ForEach(model.draft.proxies) { proxy in Text(proxy.name).tag(proxy.name) }
+                }
+                .labelsHidden()
+            }
+            Group {
+                if !SiteStoreFactory.supportsProxy {
+                    Text("SOCKS proxies need a newer macOS; a site with a proxy opens without it.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+                Text("Addresses that count as this site, separated by commas. The start URL’s origin always counts. Sign-in pages (Google, Apple, Microsoft…) open in a separate window and return here.")
+                    .font(.caption).foregroundColor(.secondary)
+                Text("Named proxies and always-proxied hosts are set in config.json (“proxies”, “proxyDomains”). A proxy applies to site windows opened after saving.")
+                    .font(.caption).foregroundColor(.secondary)
+            }
             SettingsRow("Own origins") {
                 TextField("", text: $originsText, onCommit: saveOrigins)
                     .font(.system(.body, design: .monospaced))
             }
-            Text("Addresses that count as this site, separated by commas. The start URL’s origin always counts. Sign-in pages (Google, Apple, Microsoft…) open in a separate window and return here.")
-                .font(.caption).foregroundColor(.secondary)
             if !model.problems.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(model.problems, id: \.self) { problem in
@@ -250,6 +265,11 @@ private struct SitesPane: View {
                 }
             }
         }
+    }
+
+    private var proxyName: Binding<String> {
+        Binding(get: { model.site(\.proxy, default: nil).wrappedValue ?? "" },
+                set: { model.site(\.proxy, default: nil).wrappedValue = $0.isEmpty ? nil : $0 })
     }
 
     private func loadOrigins() {

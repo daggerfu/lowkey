@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 import AppKit
+#endif
 import BobukCore
 import LowkeyCore
 
@@ -25,7 +28,7 @@ import LowkeyCore
         exit(code)
     }
 
-    static func main() {
+    static func requestFromArguments() -> (ControlRequest, Int) {
         var args = Array(CommandLine.arguments.dropFirst())
         var waitSeconds = 10
         if args.count >= 2, args[1] == "wait", let i = args.dropFirst(2).firstIndex(of: "--timeout") {
@@ -35,13 +38,66 @@ import LowkeyCore
         if args.count == 3, args[1] == "save-pdf" {
             args[2] = URL(fileURLWithPath: (args[2] as NSString).expandingTildeInPath).standardizedFileURL.path
         }
-        if args == ["--help"] || args == ["-h"] { print(usage); return }
+        if args == ["--help"] || args == ["-h"] { print(usage); exit(0) }
         let request: ControlRequest
         if (args.count == 3 || (args.count == 5 && args[3] == "--field")), args[1] == "upload" {
             request = readUpload(args[2], alias: args[0], field: args.count == 5 ? args[4] : nil)
         }
         else if let parsed = ControlRequest(args) { request = parsed }
         else { fail(usage, code: 64) }
+        return (request, waitSeconds)
+    }
+
+    static func finish(request: ControlRequest, name: String, waitUntil: Date,
+                       activate: @escaping () -> Void) {
+        func send() -> String {
+            // Retry discovery, never the command: a timed-out toggle may already have run.
+            switch MessagePortClient.send(request.payload, to: name, messageID: 1, sendTimeout: 1,
+                                          timeout: request.command.isPDFExport ? 65 : 5) {
+            case .success(let bytes): return String(decoding: bytes, as: UTF8.self)
+            case .failure: fail("no reply from lowkey")
+            }
+        }
+        var reply = send()
+        if case .page(.wait, _) = request.command {
+            while reply == "pending" {
+                guard Date() < waitUntil else { fail("wait timed out") }
+                usleep(120_000)
+                reply = send()
+            }
+        }
+        conclude(request: request, reply: reply, activate: activate)
+    }
+
+    static func conclude(request: ControlRequest, reply: String, activate: () -> Void) -> Never {
+        if reply.hasPrefix("PDF export failed:") { fail(reply) }
+        if reply.hasPrefix("output:") { print(reply.dropFirst(7)); exit(0) }
+        switch reply {
+        case "ok": exit(0)
+        case "focus":
+            activate()
+            exit(0)
+        case "unknown site": fail("unknown site: \(request.alias)")
+        case "unsupported on linux", "inspection too large", "control read only", "multiple select unsupported", "option not found", "ambiguous option",
+             "window not open", "wrong site origin", "label not found", "ambiguous label", "control disabled",
+             "no file input", "multiple file inputs", "field not found", "ambiguous field", "file type not accepted", "directory input unsupported", "unsupported link", "page unavailable", "page loading", "result unknown": fail(reply)
+        default: fail("command rejected by lowkey")
+        }
+    }
+
+    static func main() {
+        let (request, waitSeconds) = requestFromArguments()
+        #if canImport(AppKit)
+        macMain(request: request, waitSeconds: waitSeconds)
+        #else
+        linuxMain(request: request, waitSeconds: waitSeconds)
+        #endif
+    }
+
+    // MARK: - macOS
+
+    #if canImport(AppKit)
+    static func macMain(request: ControlRequest, waitSeconds: Int) {
         guard let executable = Bundle.main.executableURL else { fail("cannot locate executable") }
         let app = executable.resolvingSymlinksInPath().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -78,44 +134,64 @@ import LowkeyCore
         // Stop waiting early when the app quits while starting.
         MessagePortClient.waitForServer(name, timeout: 4, keepWaiting: { !target.isTerminated }) { available in
             guard available else { fail("lowkey did not open its control port") }
-            finish(target: target, request: request, name: name, waitUntil: Date().addingTimeInterval(TimeInterval(waitSeconds)))
+            finish(request: request, name: name, waitUntil: Date().addingTimeInterval(TimeInterval(waitSeconds))) {
+                if !target.isActive && !target.activate(options: []) { fail("macOS declined activation") }
+            }
         }
         RunLoop.current.run()
     }
+    #endif
 
-    static func finish(target: NSRunningApplication, request: ControlRequest, name: String, waitUntil: Date) {
-        func send() -> String {
-            // Retry discovery, never the command: a timed-out toggle may already have run.
-            switch MessagePortClient.send(request.payload, to: name, messageID: 1, sendTimeout: 1,
-                                          timeout: request.command.isPDFExport ? 65 : 5) {
-            case .success(let bytes): return String(decoding: bytes, as: UTF8.self)
-            case .failure: fail("no reply from lowkey")
-            }
+    // MARK: - Linux
+
+    #if !canImport(AppKit)
+    static let pidFile = FileManager.default.temporaryDirectory
+        .appendingPathComponent("io.bobuk.lowkey.pid")
+
+    /// The app binary: LOWKEY_BIN, then "lowkey" on PATH.
+    static func linuxBinary() -> URL? {
+        if let path = ProcessInfo.processInfo.environment["LOWKEY_BIN"], !path.isEmpty {
+            return URL(fileURLWithPath: path)
         }
-        var reply = send()
-        if case .page(.wait, _) = request.command {
-            while reply == "pending" {
-                guard Date() < waitUntil else { fail("wait timed out") }
-                usleep(120_000)
-                reply = send()
-            }
+        let pathDirs = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
+        for dir in pathDirs {
+            let candidate = URL(fileURLWithPath: String(dir)).appendingPathComponent("lowkey")
+            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
         }
-        conclude(target: target, request: request, reply: reply)
+        return nil
     }
 
-    static func conclude(target: NSRunningApplication, request: ControlRequest, reply: String) -> Never {
-        if reply.hasPrefix("PDF export failed:") { fail(reply) }
-        if reply.hasPrefix("output:") { print(reply.dropFirst(7)); exit(0) }
-        switch reply {
-        case "ok": exit(0)
-        case "focus":
-            if !target.isActive && !target.activate(options: []) { fail("macOS declined activation") }
-            exit(0)
-        case "unknown site": fail("unknown site: \(request.alias)")
-        case "inspection too large", "control read only", "multiple select unsupported", "option not found", "ambiguous option",
-             "window not open", "wrong site origin", "label not found", "ambiguous label", "control disabled",
-             "no file input", "multiple file inputs", "field not found", "ambiguous field", "file type not accepted", "directory input unsupported", "unsupported link", "page unavailable", "page loading", "result unknown": fail(reply)
-        default: fail("command rejected by lowkey")
-        }
+    static func runningPid() -> Int32? {
+        guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 1 else { return nil }
+        return kill(pid, 0) == 0 ? pid : nil
     }
+
+    static func linuxMain(request: ControlRequest, waitSeconds: Int) {
+        if let pid = runningPid() {
+            finish(request: request, name: ControlRequest.portName(pid: pid),
+                   waitUntil: Date().addingTimeInterval(TimeInterval(waitSeconds)), activate: {})
+            return
+        }
+        if request.command == .window(.hide) { return }
+        switch request.command {
+        case .page(.status, let params): print(WindowStatus(alias: request.alias).output(json: params == ["--json"])); return
+        case .page, .click, .upload: fail("window not open: \(request.alias)")
+        case .window: break
+        }
+        guard let binary = linuxBinary() else { fail("lowkey is not running and no binary was found (set LOWKEY_BIN)") }
+        let process = Process()
+        process.executableURL = binary
+        do { try process.run() } catch { fail("cannot launch lowkey: \(error.localizedDescription)") }
+        let pid = process.processIdentifier
+        let name = ControlRequest.portName(pid: pid)
+        MessagePortClient.waitForServer(name, timeout: 4, keepWaiting: { self.runningPid() == pid }) { available in
+            guard available else { fail("lowkey did not open its control port") }
+            finish(request: request, name: name, waitUntil: Date().addingTimeInterval(TimeInterval(waitSeconds)),
+                   activate: {})
+        }
+        RunLoop.current.run()
+    }
+    #endif
 }

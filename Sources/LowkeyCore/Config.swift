@@ -16,18 +16,22 @@ public struct Site: Codable, Identifiable, Equatable {
     public var externalLinks: ExternalLinkPolicy
     /// Extra origins that count as part of the site: `https://ha.example.com`, `*.nabu.casa`.
     public var extraOrigins: [String]
+    /// Name of the SOCKS proxy this site always opens through; nil falls back to `Config.proxyDomains` rules.
+    public var proxy: String?
 
     public init(id: UUID = UUID(), alias: String, title: String = "", startURL: String,
-                externalLinks: ExternalLinkPolicy = .defaultBrowser, extraOrigins: [String] = []) {
+                externalLinks: ExternalLinkPolicy = .defaultBrowser, extraOrigins: [String] = [],
+                proxy: String? = nil) {
         self.id = id
         self.alias = alias
         self.title = title
         self.startURL = startURL
         self.externalLinks = externalLinks
         self.extraOrigins = extraOrigins
+        self.proxy = proxy
     }
 
-    enum CodingKeys: String, CodingKey { case id, alias, title, startURL, externalLinks, extraOrigins }
+    enum CodingKeys: String, CodingKey { case id, alias, title, startURL, externalLinks, extraOrigins, proxy }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -37,6 +41,7 @@ public struct Site: Codable, Identifiable, Equatable {
         startURL = try c.decode(String.self, forKey: .startURL)
         externalLinks = try c.decodeIfPresent(ExternalLinkPolicy.self, forKey: .externalLinks) ?? .defaultBrowser
         extraOrigins = try c.decodeIfPresent([String].self, forKey: .extraOrigins) ?? []
+        proxy = try c.decodeIfPresent(String.self, forKey: .proxy)
     }
 
     public var displayTitle: String { title.isEmpty ? alias : title }
@@ -93,22 +98,31 @@ public struct AppearanceConfig: Codable, Equatable {
 public struct Config: Codable, Equatable {
     public var sites: [Site]
     public var appearance: AppearanceConfig
+    /// Named SOCKS proxies that sites and rules can reference.
+    public var proxies: [SocksProxy]
+    /// Hosts that always open through the named proxy.
+    public var proxyDomains: [ProxyRule]
 
-    public init(sites: [Site] = [], appearance: AppearanceConfig = AppearanceConfig()) {
+    public init(sites: [Site] = [], appearance: AppearanceConfig = AppearanceConfig(),
+                proxies: [SocksProxy] = [], proxyDomains: [ProxyRule] = []) {
         self.sites = sites
         self.appearance = appearance
+        self.proxies = proxies
+        self.proxyDomains = proxyDomains
     }
 
     /// Version 2 added the Tint mode; older files move a saved Page mode to Tint once.
     public static let version = 2
 
-    enum CodingKeys: String, CodingKey { case version, sites, appearance }
+    enum CodingKeys: String, CodingKey { case version, sites, appearance, proxies, proxyDomains }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         sites = try c.decodeIfPresent([Site].self, forKey: .sites) ?? []
         appearance = try c.decodeIfPresent(AppearanceConfig.self, forKey: .appearance) ?? AppearanceConfig()
+        proxies = try c.decodeIfPresent([SocksProxy].self, forKey: .proxies) ?? []
+        proxyDomains = try c.decodeIfPresent([ProxyRule].self, forKey: .proxyDomains) ?? []
         if version < 2 && appearance.mode == .page { appearance.mode = .tint }
     }
 
@@ -117,6 +131,8 @@ public struct Config: Codable, Equatable {
         try c.encode(Self.version, forKey: .version)
         try c.encode(sites, forKey: .sites)
         try c.encode(appearance, forKey: .appearance)
+        try c.encode(proxies, forKey: .proxies)
+        try c.encode(proxyDomains, forKey: .proxyDomains)
     }
 
     public func site(alias: String) -> Site? {
@@ -138,6 +154,7 @@ public struct Config: Codable, Equatable {
             }
             if site.url == nil { result.append("“\(name)”: the start URL must be an http or https address.") }
         }
+        result.append(contentsOf: proxyProblems())
         return result
     }
 

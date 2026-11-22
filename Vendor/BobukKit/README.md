@@ -1,14 +1,12 @@
 # BobukKit
 
-The name is a Ukrainian pun: **Бобук Кіт** — “Bobuk the Cat”. Bobuk is the
-author's name, and Ukrainian **кіт** means “cat”. A toolkit with a cat in its name. :)
+
 
 The shared library of the native bobuk-io apps (Ting, lowkey, Splash Finish, HAScS): their
 window shell, panels, controls, system services, Homebrew updates and the release kit.
 Canonical checkout: `~/GitHub/bobuk.io/BobukKit`. This snapshot declares `swift-tools-version: 5.3`
 (Swift Package Manager 5.3 syntax: no `.swiftLanguageMode`, no package-level traits), but the code
-still targets macOS 14 and uses Swift 5.5+/6-era APIs (`async`/`await`, `MainActor.assumeIsolated`,
-the Swift Testing library), so building it needs a toolchain at least as new as Swift 6.2.
+still targets macOS 10.15 and uses Swift 5.3 APIs, so building it needs a toolchain at least as new as Swift 5.2.
 **Before you write a window, a panel, a button style, a hotkey, a file store, a process runner
 or an update flow in an app, find it in the catalog below.** If it is missing and two apps
 need it, add it here, not to the app. Agents: read `AGENTS.md`.

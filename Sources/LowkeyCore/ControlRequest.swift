@@ -2,8 +2,8 @@ import BobukCore
 import Foundation
 
 /// Versioned, login-session-local control channel. One port per running copy.
-public struct ControlRequest: Sendable {
-    public enum Command: Equatable, Sendable {
+public struct ControlRequest {
+    public enum Command: Equatable {
         case window(SiteCommand)
         case page(PageCommand, [String])
         case click(String)
@@ -44,7 +44,7 @@ public struct ControlRequest: Sendable {
     }
 
     public init?(alias: String, filename: String, bytes: Data, field: String? = nil) {
-        if let field {
+        if let field = field {
             guard !field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, field.utf8.count <= 1024,
                   !field.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
         }
@@ -62,11 +62,11 @@ public struct ControlRequest: Sendable {
     }
     public var payload: Data {
         switch command {
-        case .page(let verb, let args): Data("page ".utf8) + ((try? JSONEncoder().encode([alias, verb.rawValue] + args)) ?? Data())
-        case .click(let label): Data("click \(alias) \(label)".utf8)
-        case .window(let action): Data("\(action.rawValue) \(alias)".utf8)
+        case .page(let verb, let args): return Data("page ".utf8) + ((try? JSONEncoder().encode([alias, verb.rawValue] + args)) ?? Data())
+        case .click(let label): return Data("click \(alias) \(label)".utf8)
+        case .window(let action): return Data("\(action.rawValue) \(alias)".utf8)
         case .upload(let name, let bytes, let field):
-            Data((field.map { "upload-field \(alias) \(name)\0\($0)\0" } ?? "upload \(alias) \(name)\0").utf8) + bytes
+            return Data((field.map { "upload-field \(alias) \(name)\0\($0)\0" } ?? "upload \(alias) \(name)\0").utf8) + bytes
         }
     }
     public init?(payload: Data) {

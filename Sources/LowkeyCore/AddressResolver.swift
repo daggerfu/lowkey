@@ -2,7 +2,7 @@ import BobukCore
 import Foundation
 
 /// What the address prompt opens for a line of input.
-public enum AddressTarget: Equatable, Sendable {
+public enum AddressTarget: Equatable {
     case site(Site)
     case url(URL)
     case invalid
@@ -30,10 +30,10 @@ public enum AddressResolver {
         if let schemeEnd = text.range(of: "://") {
             let scheme = text[..<schemeEnd.lowerBound].lowercased()
             guard scheme == "http" || scheme == "https", let url = URL(string: text),
-                  let host = url.host(), !host.isEmpty else { return nil }
+                  let host = url.host, !host.isEmpty else { return nil }
             return url
         }
-        guard let host = URL(string: "http://" + text)?.host(), !host.isEmpty else { return nil }
+        guard let host = URL(string: "http://" + text)?.host, !host.isEmpty else { return nil }
         let looksLikeHost = host.contains(".") || host == "localhost" || host.contains(":")
             || text.dropFirst(host.count).hasPrefix(":")
         guard looksLikeHost else { return nil }

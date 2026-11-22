@@ -4,7 +4,7 @@ import WebKit
 
 /// Configuration and input history on disk.
 /// `LOWKEY_CONFIG=/tmp/x.json` moves both files for manual checks (history: `/tmp/x.json.history.json`).
-@MainActor final class Store: ObservableObject {
+final class Store: ObservableObject {
     @Published private(set) var config: Config
     @Published private(set) var history: InputHistory
     /// The last load or save problem, shown in Settings.
@@ -15,7 +15,7 @@ import WebKit
 
     init(configURL customConfigURL: URL? = nil) {
         let environment = ProcessInfo.processInfo.environment
-        if let customConfigURL {
+        if let customConfigURL = customConfigURL {
             configURL = customConfigURL
             historyURL = URL(fileURLWithPath: customConfigURL.path + ".history.json")
         } else if let path = environment["LOWKEY_CONFIG"], !path.isEmpty {
@@ -23,9 +23,9 @@ import WebKit
             historyURL = URL(fileURLWithPath: configURL.path + ".history.json")
         } else {
             let home = FileManager.default.homeDirectoryForCurrentUser
-            configURL = home.appending(path: ".config/lowkey/config.json")
+            configURL = home.appendingPathComponent(".config/lowkey/config.json")
             let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            historyURL = support.appending(path: "Lowkey/history.json")
+            historyURL = support.appendingPathComponent("Lowkey/history.json")
         }
         do {
             config = try Config.load(from: configURL)
@@ -68,12 +68,12 @@ import WebKit
     }
 
     private func saveHistory() {
-        do { try history.save(to: historyURL) } catch { Log.app.error("can’t save history: \(error.localizedDescription, privacy: .public)") }
+        do { try history.save(to: historyURL) } catch { Log.error("can’t save history: \(error.localizedDescription)") }
     }
 }
 
 /// Owns the windows and runs commands from deep links, menus and the address prompt.
-@MainActor final class AppController {
+final class AppController {
     let store: Store
     private(set) var siteWindows: [UUID: BrowserWindowController] = [:]
     private(set) var ordinaryWindows: [BrowserWindowController] = []
@@ -128,33 +128,33 @@ import WebKit
 
     /// Unlike a URL open, the CLI request hasn't activated lowkey. Reply only after
     /// ordering the window so the caller may request activation without raising a stale key window.
-    func handle(_ request: ControlRequest) async -> String {
-        guard let site = store.config.site(alias: request.alias) else { return "unknown site" }
+    func handle(_ request: ControlRequest, completion: @escaping (String) -> Void) {
+        guard let site = store.config.site(alias: request.alias) else { return completion("unknown site") }
         switch request.command {
         case .page(.status, let args):
             let browser = siteWindows[site.id], window = browser?.window
             let status = WindowStatus(alias: site.alias, open: window != nil, visible: window?.isVisible == true,
                                       minimized: window?.isMiniaturized == true, focused: NSApp.isActive && window?.isKeyWindow == true,
                                       loading: browser?.webView.isLoading == true)
-            return "output:" + status.output(json: args == ["--json"])
+            completion("output:" + status.output(json: args == ["--json"]))
         case .page(let command, let args):
-            guard let browser = siteWindows[site.id], let url = site.url else { return "window not open" }
-            if command == .wait && browser.pendingDocument { return "pending" }
-            return await PageControls.run(command, args: args, view: browser.webView, site: url)
+            guard let browser = siteWindows[site.id], let url = site.url else { return completion("window not open") }
+            if command == .wait && browser.pendingDocument { return completion("pending") }
+            PageControls.run(command, args: args, view: browser.webView, site: url, completion: completion)
         case .click(let label):
-            guard let browser = siteWindows[site.id], let url = site.url else { return "window not open" }
-            guard !browser.webView.isLoading else { return "page loading" }
-            return await PageClick.perform(in: browser.webView, startURL: url, label: label)
+            guard let browser = siteWindows[site.id], let url = site.url else { return completion("window not open") }
+            guard !browser.webView.isLoading else { return completion("page loading") }
+            PageClick.perform(in: browser.webView, startURL: url, label: label, completion: completion)
         case .upload(let name, let bytes, let field):
-            guard let browser = siteWindows[site.id], let url = site.url else { return "window not open" }
-            guard !browser.webView.isLoading else { return "page loading" }
-            return await PageUpload.attach(in: browser.webView, startURL: url, name: name, bytes: bytes, field: field)
+            guard let browser = siteWindows[site.id], let url = site.url else { return completion("window not open") }
+            guard !browser.webView.isLoading else { return completion("page loading") }
+            PageUpload.attach(in: browser.webView, startURL: url, name: name, bytes: bytes, field: field, completion: completion)
         case .window(let command):
             run(command, on: site, beforeActivation: nil)
-            if command == .hide { return "ok" }
+            if command == .hide { return completion("ok") }
+            guard let window = siteWindows[site.id]?.window else { return completion("cannot open site") }
+            completion(window.isVisible && !window.isMiniaturized ? "focus" : "ok")
         }
-        guard let window = siteWindows[site.id]?.window else { return "cannot open site" }
-        return window.isVisible && !window.isMiniaturized ? "focus" : "ok"
     }
 
     private func run(_ command: SiteCommand, on site: Site, beforeActivation: ToggleWindowOrder?) {
@@ -197,12 +197,27 @@ import WebKit
         }
         guard let url = site.url else { return nil }
         let controller = BrowserWindowController(kind: .saved(site.id), startURL: url,
-                                                 dataStore: WKWebsiteDataStore(forIdentifier: site.id), app: self)
+                                                 dataStore: Self.siteDataStore(id: site.id), app: self)
         siteWindows[site.id] = controller
         controller.updateCloseGlyph(commandHeld: commandHeld)
         controller.load(url)
         controller.show()
         return controller
+    }
+
+    /// Persistent per-site profiles need `WKWebsiteDataStore(forIdentifier:)`, macOS 11 SDK.
+    /// Catalina shares the default store: sites still get windows and link policy, but not
+    /// separate cookies. Kept behind `#if compiler` because the symbol is absent from the 10.15 SDK.
+    static func siteDataStore(id: UUID) -> WKWebsiteDataStore {
+        #if compiler(>=5.4)
+        if #available(macOS 11, *) {
+            return WKWebsiteDataStore(forIdentifier: id)
+        } else {
+            return .default()
+        }
+        #else
+        return .default()
+        #endif
     }
 
     func openOrdinary(_ url: URL, near window: NSWindow? = nil) {
@@ -247,16 +262,16 @@ import WebKit
                 inCurrentProfile: Bool = false) -> String? {
         let resolved = AddressResolver.resolve(text, sites: store.config.sites)
         if inCurrentProfile {
-            guard let target, target.window != nil else { return "The profile window is no longer open." }
-            let url: URL?
+            guard let target = target, target.window != nil else { return "The profile window is no longer open." }
+            let address: URL?
             switch resolved {
-            case .site(let site): url = site.url
-            case .url(let address): url = address
-            case .invalid: url = nil
+            case .site(let site): address = site.url
+            case .url(let url): address = url
+            case .invalid: address = nil
             }
-            guard let url else { return "Enter a site alias or a web address." }
-            store.record(url.absoluteString)
-            target.loadInCurrentProfile(url)
+            guard let openURL = address else { return "Enter a site alias or a web address." }
+            store.record(openURL.absoluteString)
+            target.loadInCurrentProfile(openURL)
             target.window?.makeKeyAndOrderFront(nil)
             return nil
         }
@@ -295,12 +310,37 @@ import WebKit
         siteWindows[id]?.window?.close()
         siteWindows[id] = nil
         // Give WebKit a moment to release the store of the closed window.
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))
-            do {
-                try await WKWebsiteDataStore.remove(forIdentifier: id)
-            } catch {
-                Log.app.error("can’t remove the profile of a deleted site: \(error.localizedDescription, privacy: .public)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            #if compiler(>=5.4)
+            if #available(macOS 11, *) {
+                WKWebsiteDataStore.remove(forIdentifier: id) { error in
+                    if let error = error {
+                        Log.error("can’t remove the profile of a deleted site: \(error.localizedDescription)")
+                    }
+                }
+            } else {
+                Self.removeProfileDirectory(id)
+            }
+            #else
+            Self.removeProfileDirectory(id)
+            #endif
+        }
+    }
+
+    /// Catalina has no `WKWebsiteDataStore.remove`; delete the on-disk profile directly.
+    private static func removeProfileDirectory(_ id: UUID) {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let candidates = [
+            home.appendingPathComponent("Library/WebKit/\(bundleID)/WebsiteData/Profiles/\(id.uuidString)"),
+            home.appendingPathComponent("Library/WebKit/\(bundleID)/WebsiteData/\(id.uuidString)"),
+            home.appendingPathComponent("Library/Caches/\(bundleID)/WebKit/\(id.uuidString)"),
+        ]
+        for url in candidates {
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            do { try FileManager.default.removeItem(at: url) }
+            catch {
+                Log.error("can’t remove the profile of a deleted site: \(error.localizedDescription)")
             }
         }
     }

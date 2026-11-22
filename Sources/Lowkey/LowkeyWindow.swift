@@ -5,7 +5,7 @@ import LowkeyCore
 /// A lowkey window: BobukKit's `ChromeWindow` (accent line, strip, `body`) in lowkey's theme.
 /// It keeps the page classification of its page for Page and Tint modes and recolors the
 /// chrome from `ThemeCenter`'s strip tokens.
-@MainActor class LowkeyWindow: ChromeWindow, PageThemeProviding {
+class LowkeyWindow: ChromeWindow, PageThemeProviding {
     static let pageThemeDidChange = Notification.Name("LowkeyPageThemeDidChange")
     var pageIsDark: Bool? {
         didSet {

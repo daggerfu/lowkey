@@ -1,225 +1,227 @@
 import Foundation
-import Testing
+import XCTest
 @testable import LowkeyCore
 
 private let ha = Site(alias: "HA", title: "Home Assistant", startURL: "https://homeassistant.local",
                       extraOrigins: ["*.nabu.casa", "http://ha.lan:8123"])
 
-@Suite struct DeepLinkTests {
-    @Test func parsesSiteCommands() throws {
-        #expect(try DeepLink.parse(URL(string: "lowkey://HA/open")!).get() == .site(alias: "HA", command: .open))
-        #expect(try DeepLink.parse(URL(string: "lowkey://ha/Reload")!).get() == .site(alias: "ha", command: .reload))
-        #expect(try DeepLink.parse(URL(string: "lowkey://HA")!).get() == .site(alias: "HA", command: .open))
-        #expect(try DeepLink.parse(URL(string: "lowkey://HA/")!).get() == .site(alias: "HA", command: .open))
-        #expect(try DeepLink.parse(URL(string: "LOWKEY://my_site/close")!).get() == .site(alias: "my_site", command: .close))
+final class DeepLinkTests: XCTestCase {
+    func testParsesSiteCommands() throws {
+        XCTAssertEqual(try DeepLink.parse(URL(string: "lowkey://HA/open")!).get(), .site(alias: "HA", command: .open))
+        XCTAssertEqual(try DeepLink.parse(URL(string: "lowkey://ha/Reload")!).get(), .site(alias: "ha", command: .reload))
+        XCTAssertEqual(try DeepLink.parse(URL(string: "lowkey://HA")!).get(), .site(alias: "HA", command: .open))
+        XCTAssertEqual(try DeepLink.parse(URL(string: "lowkey://HA/")!).get(), .site(alias: "HA", command: .open))
+        XCTAssertEqual(try DeepLink.parse(URL(string: "LOWKEY://my_site/close")!).get(), .site(alias: "my_site", command: .close))
     }
 
-    @Test func emptyAliasShowsPrompt() throws {
-        #expect(try DeepLink.parse(URL(string: "lowkey://")!).get() == .prompt)
+    func testEmptyAliasShowsPrompt() throws {
+        XCTAssertEqual(try DeepLink.parse(URL(string: "lowkey://")!).get(), .prompt)
     }
 
-    @Test func rejectsUnknownCommandsAndSchemes() {
-        #expect(DeepLink.parse(URL(string: "lowkey://HA/eval")!) == .failure(.unknownCommand("eval")))
-        #expect(DeepLink.parse(URL(string: "lowkey://HA/open/extra")!) == .failure(.unknownCommand("open/extra")))
-        #expect(DeepLink.parse(URL(string: "https://HA/open")!) == .failure(.notLowkey))
-    }
-}
-
-@Suite struct AddressTests {
-    @Test func aliasWinsCaseInsensitively() {
-        #expect(AddressResolver.resolve("ha", sites: [ha]) == .site(ha))
-    }
-
-    @Test func bareHostsGetHTTPS() {
-        #expect(AddressResolver.resolve("google.com", sites: [ha]) == .url(URL(string: "https://google.com")!))
-        #expect(AddressResolver.resolve("nas.local:5000/x", sites: []) == .url(URL(string: "https://nas.local:5000/x")!))
-    }
-
-    @Test func loopbackGetsHTTP() {
-        #expect(AddressResolver.resolve("localhost:3000", sites: []) == .url(URL(string: "http://localhost:3000")!))
-        #expect(AddressResolver.resolve("127.0.0.1:8080", sites: []) == .url(URL(string: "http://127.0.0.1:8080")!))
-    }
-
-    @Test func keepsExplicitWebSchemes() {
-        #expect(AddressResolver.resolve("http://ha.lan:8123", sites: []) == .url(URL(string: "http://ha.lan:8123")!))
-    }
-
-    @Test func rejectsWordsAndOtherSchemes() {
-        #expect(AddressResolver.resolve("unknown", sites: [ha]) == .invalid)
-        #expect(AddressResolver.resolve("two words.com", sites: []) == .invalid)
-        #expect(AddressResolver.resolve("file:///etc/passwd", sites: []) == .invalid)
-        #expect(AddressResolver.resolve("javascript://x.com", sites: []) == .invalid)
-        #expect(AddressResolver.resolve("   ", sites: []) == .invalid)
+    func testRejectsUnknownCommandsAndSchemes() {
+        XCTAssertEqual(DeepLink.parse(URL(string: "lowkey://HA/eval")!), .failure(.unknownCommand("eval")))
+        XCTAssertEqual(DeepLink.parse(URL(string: "lowkey://HA/open/extra")!), .failure(.unknownCommand("open/extra")))
+        XCTAssertEqual(DeepLink.parse(URL(string: "https://HA/open")!), .failure(.notLowkey))
     }
 }
 
-@Suite struct HistoryTests {
-    @Test func recordsNewestFirstWithoutDuplicates() {
+final class AddressTests: XCTestCase {
+    func testAliasWinsCaseInsensitively() {
+        XCTAssertEqual(AddressResolver.resolve("ha", sites: [ha]), .site(ha))
+    }
+
+    func testBareHostsGetHTTPS() {
+        XCTAssertEqual(AddressResolver.resolve("google.com", sites: [ha]), .url(URL(string: "https://google.com")!))
+        XCTAssertEqual(AddressResolver.resolve("nas.local:5000/x", sites: []), .url(URL(string: "https://nas.local:5000/x")!))
+    }
+
+    func testLoopbackGetsHTTP() {
+        XCTAssertEqual(AddressResolver.resolve("localhost:3000", sites: []), .url(URL(string: "http://localhost:3000")!))
+        XCTAssertEqual(AddressResolver.resolve("127.0.0.1:8080", sites: []), .url(URL(string: "http://127.0.0.1:8080")!))
+    }
+
+    func testKeepsExplicitWebSchemes() {
+        XCTAssertEqual(AddressResolver.resolve("http://ha.lan:8123", sites: []), .url(URL(string: "http://ha.lan:8123")!))
+    }
+
+    func testRejectsWordsAndOtherSchemes() {
+        XCTAssertEqual(AddressResolver.resolve("unknown", sites: [ha]), .invalid)
+        XCTAssertEqual(AddressResolver.resolve("two words.com", sites: []), .invalid)
+        XCTAssertEqual(AddressResolver.resolve("file:///etc/passwd", sites: []), .invalid)
+        XCTAssertEqual(AddressResolver.resolve("javascript://x.com", sites: []), .invalid)
+        XCTAssertEqual(AddressResolver.resolve("   ", sites: []), .invalid)
+    }
+}
+
+final class HistoryTests: XCTestCase {
+    func testRecordsNewestFirstWithoutDuplicates() {
         var history = InputHistory()
         history.record("a.com")
         history.record("b.com")
         history.record("A.com")
-        #expect(history.entries == ["A.com", "b.com"])
+        XCTAssertEqual(history.entries, ["A.com", "b.com"])
     }
 
-    @Test func keepsLastThousand() {
+    func testKeepsLastThousand() {
         var history = InputHistory()
         for i in 0..<1005 { history.record("site\(i).com") }
-        #expect(history.entries.count == 1000)
-        #expect(history.entries.first == "site1004.com")
-        #expect(history.entries.last == "site5.com")
+        XCTAssertEqual(history.entries.count, 1000)
+        XCTAssertEqual(history.entries.first, "site1004.com")
+        XCTAssertEqual(history.entries.last, "site5.com")
     }
 
-    @Test func removedEntryReturnsWhenSubmitted() {
+    func testRemovedEntryReturnsWhenSubmitted() {
         var history = InputHistory(entries: ["a.com", "b.com"])
         history.remove("A.COM")
-        #expect(history.entries == ["b.com"])
+        XCTAssertEqual(history.entries, ["b.com"])
         history.record("a.com")
-        #expect(history.entries == ["a.com", "b.com"])
+        XCTAssertEqual(history.entries, ["a.com", "b.com"])
     }
 
-    @Test func roundTripsThroughFile() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: "lowkey-history-\(UUID()).json")
+    func testRoundTripsThroughFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lowkey-history-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
         try InputHistory(entries: ["x.com", "y.com"]).save(to: url)
-        #expect(InputHistory.load(from: url).entries == ["x.com", "y.com"])
+        XCTAssertEqual(InputHistory.load(from: url).entries, ["x.com", "y.com"])
         // The file format is a plain JSON array without escaped slashes.
         try InputHistory(entries: ["https://a.example/x"]).save(to: url)
-        #expect(String(decoding: try Data(contentsOf: url), as: UTF8.self) == #"["https://a.example/x"]"#)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: url), as: UTF8.self), #"["https://a.example/x"]"#)
         // Codable keeps its `entries` key and drops nothing.
         let coded = try JSONEncoder().encode(InputHistory(entries: ["b.com"]))
-        #expect(String(decoding: coded, as: UTF8.self) == #"{"entries":["b.com"]}"#)
-        #expect(try JSONDecoder().decode(InputHistory.self, from: coded) == InputHistory(entries: ["b.com"]))
+        XCTAssertEqual(String(decoding: coded, as: UTF8.self), #"{"entries":["b.com"]}"#)
+        XCTAssertEqual(try JSONDecoder().decode(InputHistory.self, from: coded), InputHistory(entries: ["b.com"]))
     }
 }
 
-@Suite struct SuggestionTests {
+final class SuggestionTests: XCTestCase {
     let grafana = Site(alias: "GRAF", title: "Grafana", startURL: "https://grafana.lan:3000")
 
-    @Test func sitesComeFirstThenHistory() {
+    func testSitesComeFirstThenHistory() {
         let history = InputHistory(entries: ["https://github.com", "https://graphql.org", "HA"])
         let result = Suggestions.make(query: "gr", sites: [ha, grafana], history: history)
-        #expect(result == [.site(grafana), .history("https://graphql.org")])
+        XCTAssertEqual(result, [.site(grafana), .history("https://graphql.org")])
     }
 
-    @Test(arguments: ["", "  \t"]) func blankQueryListsOnlySavedSites(_ query: String) {
+    func testBlankQueryListsOnlySavedSites() {
         let history = InputHistory(entries: ["https://github.com"])
-        #expect(Suggestions.make(query: query, sites: [ha, grafana], history: history) == [.site(ha), .site(grafana)])
-        #expect(Suggestions.make(query: query, sites: [], history: history).isEmpty)
+        for query in ["", "  \t"] {
+            XCTAssertEqual(Suggestions.make(query: query, sites: [ha, grafana], history: history), [.site(ha), .site(grafana)])
+            XCTAssertTrue(Suggestions.make(query: query, sites: [], history: history).isEmpty)
+        }
     }
 
-    @Test func historyPrefixBeatsContains() {
+    func testHistoryPrefixBeatsContains() {
         let history = InputHistory(entries: ["https://maps.google.com", "https://google.com"])
         let result = Suggestions.make(query: "goo", sites: [], history: history)
-        #expect(result == [.history("https://google.com"), .history("https://maps.google.com")])
+        XCTAssertEqual(result, [.history("https://google.com"), .history("https://maps.google.com")])
     }
 }
 
-@Suite struct LinkPolicyTests {
-    @Test func originsNormalizeDefaultPorts() {
-        #expect(Origin(URL(string: "https://A.com")!) == Origin(URL(string: "https://a.com:443/x")!))
-        #expect(Origin(URL(string: "https://a.com")!) != Origin(URL(string: "http://a.com")!))
+final class LinkPolicyTests: XCTestCase {
+    func testOriginsNormalizeDefaultPorts() {
+        XCTAssertEqual(Origin(URL(string: "https://A.com")!), Origin(URL(string: "https://a.com:443/x")!))
+        XCTAssertNotEqual(Origin(URL(string: "https://a.com")!), Origin(URL(string: "http://a.com")!))
     }
 
-    @Test func siteOriginsAndPatterns() {
-        #expect(LinkPolicy.isPartOfSite(URL(string: "https://homeassistant.local/lovelace")!, site: ha))
-        #expect(!LinkPolicy.isPartOfSite(URL(string: "https://sub.homeassistant.local/")!, site: ha))
-        #expect(LinkPolicy.isPartOfSite(URL(string: "https://abc.ui.nabu.casa/")!, site: ha))
-        #expect(LinkPolicy.isPartOfSite(URL(string: "https://nabu.casa/")!, site: ha) == false)
-        #expect(LinkPolicy.isPartOfSite(URL(string: "http://ha.lan:8123/")!, site: ha))
-        #expect(!LinkPolicy.isPartOfSite(URL(string: "https://ha.lan:8123/")!, site: ha))
+    func testSiteOriginsAndPatterns() {
+        XCTAssertTrue(LinkPolicy.isPartOfSite(URL(string: "https://homeassistant.local/lovelace")!, site: ha))
+        XCTAssertFalse(LinkPolicy.isPartOfSite(URL(string: "https://sub.homeassistant.local/")!, site: ha))
+        XCTAssertTrue(LinkPolicy.isPartOfSite(URL(string: "https://abc.ui.nabu.casa/")!, site: ha))
+        XCTAssertFalse(LinkPolicy.isPartOfSite(URL(string: "https://nabu.casa/")!, site: ha))
+        XCTAssertTrue(LinkPolicy.isPartOfSite(URL(string: "http://ha.lan:8123/")!, site: ha))
+        XCTAssertFalse(LinkPolicy.isPartOfSite(URL(string: "https://ha.lan:8123/")!, site: ha))
     }
 
-    @Test func externalLinksFollowSitePolicy() {
+    func testExternalLinksFollowSitePolicy() {
         let external = URL(string: "https://example.com")!
-        #expect(LinkPolicy.decide(linkTo: external, site: ha) == .openExternally)
+        XCTAssertEqual(LinkPolicy.decide(linkTo: external, site: ha), .openExternally)
         var inside = ha
         inside.externalLinks = .lowkey
-        #expect(LinkPolicy.decide(linkTo: external, site: inside) == .stay)
-        #expect(LinkPolicy.decide(linkTo: external, site: nil) == .stay)
-        #expect(LinkPolicy.decide(linkTo: URL(string: "https://homeassistant.local/x")!, site: ha) == .stay)
+        XCTAssertEqual(LinkPolicy.decide(linkTo: external, site: inside), .stay)
+        XCTAssertEqual(LinkPolicy.decide(linkTo: external, site: nil), .stay)
+        XCTAssertEqual(LinkPolicy.decide(linkTo: URL(string: "https://homeassistant.local/x")!, site: ha), .stay)
     }
 
-    @Test func signInPagesStay() {
-        #expect(LinkPolicy.decide(linkTo: URL(string: "https://accounts.google.com/o/oauth2/auth")!, site: ha) == .stay)
-        #expect(AuthProviders.isSignIn(URL(string: "https://github.com/login/oauth/authorize")!))
-        #expect(!AuthProviders.isSignIn(URL(string: "https://github.com/bobuk")!))
-        #expect(AuthProviders.isSignIn(URL(string: "https://dev-x.eu.auth0.com/authorize")!))
+    func testSignInPagesStay() {
+        XCTAssertEqual(LinkPolicy.decide(linkTo: URL(string: "https://accounts.google.com/o/oauth2/auth")!, site: ha), .stay)
+        XCTAssertTrue(AuthProviders.isSignIn(URL(string: "https://github.com/login/oauth/authorize")!))
+        XCTAssertFalse(AuthProviders.isSignIn(URL(string: "https://github.com/bobuk")!))
+        XCTAssertTrue(AuthProviders.isSignIn(URL(string: "https://dev-x.eu.auth0.com/authorize")!))
     }
 
-    @Test func otherSchemesLeaveEvenInOrdinaryWindows() {
-        #expect(LinkPolicy.decide(linkTo: URL(string: "mailto:a@b.c")!, site: nil) == .openExternally)
-        #expect(LinkPolicy.decide(linkTo: URL(string: "about:blank")!, site: ha) == .stay)
+    func testOtherSchemesLeaveEvenInOrdinaryWindows() {
+        XCTAssertEqual(LinkPolicy.decide(linkTo: URL(string: "mailto:a@b.c")!, site: nil), .openExternally)
+        XCTAssertEqual(LinkPolicy.decide(linkTo: URL(string: "about:blank")!, site: ha), .stay)
     }
 
-    @Test func rejectsBadPatterns() {
-        #expect(OriginPattern("ftp://x.com") == nil)
-        #expect(OriginPattern("a.*.com") == nil)
-        #expect(OriginPattern("") == nil)
+    func testRejectsBadPatterns() {
+        XCTAssertNil(OriginPattern("ftp://x.com"))
+        XCTAssertNil(OriginPattern("a.*.com"))
+        XCTAssertNil(OriginPattern(""))
     }
 }
 
-@Suite struct ConfigTests {
-    @Test func validatesAliasesAndURLs() {
-        #expect(Site.isValidAlias("HA"))
-        #expect(Site.isValidAlias("my-site_2"))
-        #expect(!Site.isValidAlias("-x"))
-        #expect(!Site.isValidAlias("a.b"))
-        #expect(!Site.isValidAlias("сайт"))
+final class ConfigTests: XCTestCase {
+    func testValidatesAliasesAndURLs() {
+        XCTAssertTrue(Site.isValidAlias("HA"))
+        XCTAssertTrue(Site.isValidAlias("my-site_2"))
+        XCTAssertFalse(Site.isValidAlias("-x"))
+        XCTAssertFalse(Site.isValidAlias("a.b"))
+        XCTAssertFalse(Site.isValidAlias("сайт"))
         let config = Config(sites: [ha, Site(alias: "ha", startURL: "ftp://x"), Site(alias: "bad alias", startURL: "x.com")])
-        #expect(config.problems().count == 3)
+        XCTAssertEqual(config.problems().count, 3)
     }
 
-    @Test func toleratesMissingFields() throws {
+    func testToleratesMissingFields() throws {
         let json = #"{"sites":[{"alias":"HA","startURL":"https://homeassistant.local"}]}"#
         let config = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
-        #expect(config.site(alias: "ha")?.externalLinks == .defaultBrowser)
-        #expect(config.appearance.mode == .tint)
+        XCTAssertEqual(config.site(alias: "ha")?.externalLinks, .defaultBrowser)
+        XCTAssertEqual(config.appearance.mode, .tint)
     }
 
-    @Test func roundTripsThroughFile() throws {
-        let url = FileManager.default.temporaryDirectory.appending(path: "lowkey-config-\(UUID()).json")
+    func testRoundTripsThroughFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lowkey-config-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
         let config = Config(sites: [ha], appearance: AppearanceConfig(mode: .dark))
         try config.save(to: url)
-        #expect(try Config.load(from: url) == config)
+        XCTAssertEqual(try Config.load(from: url), config)
     }
 
-    @Test func invalidThemeColorsFallBack() throws {
+    func testInvalidThemeColorsFallBack() throws {
         let json = ##"{"appearance":{"mode":"light","light":{"preset":"x","panel":"red","accent":"#000000"}}}"##
         let config = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
-        #expect(config.appearance.light == ThemePreset.amber.colors(dark: false))
+        XCTAssertEqual(config.appearance.light, ThemePreset.amber.colors(dark: false))
     }
 }
 
-@Suite struct ThemeTests {
-    @Test func inkFollowsPanelBrightness() {
-        #expect(!ThemeTokens(colors: ThemePreset.amber.colors(dark: false)).isDark)
-        #expect(ThemeTokens(colors: ThemePreset.amber.colors(dark: true)).isDark)
+final class ThemeTests: XCTestCase {
+    func testInkFollowsPanelBrightness() {
+        XCTAssertFalse(ThemeTokens(colors: ThemePreset.amber.colors(dark: false)).isDark)
+        XCTAssertTrue(ThemeTokens(colors: ThemePreset.amber.colors(dark: true)).isDark)
     }
 
-    @Test func presetsAreValidHex() {
-        #expect(ThemePreset.all.count == 18)
+    func testPresetsAreValidHex() {
+        XCTAssertEqual(ThemePreset.all.count, 18)
         for preset in ThemePreset.all {
             for dark in [false, true] {
                 let colors = preset.colors(dark: dark)
-                #expect(colors.isValid, "\(preset.id)")
+                XCTAssertTrue(colors.isValid, "\(preset.id)")
             }
         }
-        #expect(Set(ThemePreset.all.map(\.id)).count == ThemePreset.all.count)
+        XCTAssertEqual(Set(ThemePreset.all.map(\.id)).count, ThemePreset.all.count)
     }
 
-    @Test func flagsLowContrastAccent() {
-        #expect(ThemeTokens(colors: ThemeColors(preset: "custom", panel: "#222222", accent: "#2a2a2a")).lowAccentContrast)
-        #expect(RGB(hex: "#885500")?.hex == "#885500")
+    func testFlagsLowContrastAccent() {
+        XCTAssertTrue(ThemeTokens(colors: ThemeColors(preset: "custom", panel: "#222222", accent: "#2a2a2a")).lowAccentContrast)
+        XCTAssertEqual(RGB(hex: "#885500")?.hex, "#885500")
     }
 
-    @Test func fullPaletteRoundTripsAndRemainsBackwardCompatible() throws {
+    func testFullPaletteRoundTripsAndRemainsBackwardCompatible() throws {
         // Legacy 2-color JSON still decodes cleanly with auto-derived semantic tokens.
         let legacyJSON = ##"{"version":2,"appearance":{"mode":"dark","dark":{"preset":"catppuccin","panel":"#1e1e2e","accent":"#cba6f7"}}}"##
         let legacy = try JSONDecoder().decode(Config.self, from: Data(legacyJSON.utf8))
-        #expect(legacy.appearance.dark.preset == "catppuccin")
-        #expect(legacy.appearance.dark.link == nil)
+        XCTAssertEqual(legacy.appearance.dark.preset, "catppuccin")
+        XCTAssertNil(legacy.appearance.dark.link)
 
         // Full 10-color preset round-trips every role.
         let full = Config(appearance: AppearanceConfig(mode: .dark,
@@ -227,8 +229,8 @@ private let ha = Site(alias: "HA", title: "Home Assistant", startURL: "https://h
                                                        dark: ThemePreset.named("catppuccin")!.colors(dark: true)))
         let encoded = try JSONEncoder().encode(full)
         let decoded = try JSONDecoder().decode(Config.self, from: encoded)
-        #expect(decoded == full)
-        #expect(decoded.appearance.dark.link == "#89b4fa")
-        #expect(decoded.appearance.light.selection == "#d8d6b2")
+        XCTAssertEqual(decoded, full)
+        XCTAssertEqual(decoded.appearance.dark.link, "#89b4fa")
+        XCTAssertEqual(decoded.appearance.light.selection, "#d8d6b2")
     }
 }

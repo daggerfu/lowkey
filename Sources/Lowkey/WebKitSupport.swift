@@ -4,7 +4,7 @@ import LowkeyCore
 import WebKit
 
 /// A web view that turns ⌘← / ⌘→ into history navigation unless a text field has focus.
-@MainActor final class LowkeyWebView: WKWebView {
+final class LowkeyWebView: WKWebView {
     /// Reported by the page: a text field, text area or editable element has focus.
     var isEditingText = false
 
@@ -28,19 +28,38 @@ import WebKit
     }
 }
 
-/// Receives focus reports from the page script in an isolated content world.
+/// Receives focus and page-color reports from the injected script. macOS 10.15 has no
+/// isolated content worlds, so the script runs in the page's own world; the reports are
+/// hints for chrome coloring, not a security boundary.
 final class EditingReporter: NSObject, WKScriptMessageHandler {
     static let shared = EditingReporter()
     static let name = "lowkeyEditing"
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        MainActor.assumeIsolated {
-            guard let webView = message.webView as? LowkeyWebView, let editing = message.body as? Bool else { return }
+        guard let webView = message.webView as? LowkeyWebView else { return }
+        if let editing = message.body as? Bool {
+            // Legacy single-value report; the combined dictionary report below is the live path.
             webView.isEditingText = editing
+            return
         }
+        guard let report = message.body as? [String: Any] else { return }
+        if let editing = report["e"] as? Bool { webView.isEditingText = editing }
+        let background = (report["bg"] as? [NSNumber]).flatMap(Self.pageColor)
+        let theme = (report["th"] as? [NSNumber]).flatMap(Self.pageColor)
+        (webView.window?.windowController as? WebWindowController)?.pageColors(background: background, theme: theme)
     }
 
-    /// Runs in `.defaultClient`, invisible to the page's own scripts.
+    /// [r, g, b, a] with 0-255 components from the page script.
+    private static func pageColor(_ components: [NSNumber]) -> PageColor? {
+        guard components.count == 4 else { return nil }
+        let rgb = RGB(r: Double(components[0].doubleValue) / 255,
+                      g: Double(components[1].doubleValue) / 255,
+                      b: Double(components[2].doubleValue) / 255)
+        return PageColor(rgb: rgb, alpha: Double(components[3].doubleValue))
+    }
+
+    /// Reports focus state, the computed body background and the meta theme-color,
+    /// only when one of them actually changed.
     static let script = """
     (() => {
       const closed = new Set(['button','checkbox','color','file','hidden','image','radio','range','reset','submit']);
@@ -58,29 +77,55 @@ final class EditingReporter: NSObject, WKScriptMessageHandler {
         while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
         return el;
       };
+      const rgba = (el) => {
+        if (!el) return null;
+        const m = getComputedStyle(el).backgroundColor.match(/rgba?\\(([^)]+)\\)/);
+        if (!m) return null;
+        const p = m[1].split(',').map((s) => parseFloat(s));
+        return p.length >= 3 && p.every((n) => !isNaN(n)) ? [p[0], p[1], p[2], p.length === 3 ? 1 : p[3]] : null;
+      };
+      const theme = () => {
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (!meta || !meta.content) return null;
+        const ctx = document.createElement('canvas').getContext('2d');
+        ctx.fillStyle = meta.content;
+        const m = String(ctx.fillStyle).match(/#(..)(..)(..)/i) || String(ctx.fillStyle).match(/rgba?\\(([^)]+)\\)/);
+        if (!m) return null;
+        if (m[1].length === 6) {
+          return [parseInt(m[1].slice(0,2),16), parseInt(m[1].slice(2,4),16), parseInt(m[1].slice(4,6),16), 1];
+        }
+        const p = m[1].split(',').map((s) => parseFloat(s));
+        return p.length >= 3 ? [p[0], p[1], p[2], p.length === 3 ? 1 : p[3]] : null;
+      };
+      let last = '';
       const report = () => {
         const el = deep();
         // Focus inside a child frame: that frame reports for itself.
         if (el && (el.tagName === 'IFRAME' || el.tagName === 'FRAME')) return;
-        try { window.webkit.messageHandlers.lowkeyEditing.postMessage(editable(el)); } catch (e) {}
+        const msg = { e: editable(el), bg: rgba(document.body), th: theme() };
+        const key = JSON.stringify(msg);
+        if (key === last) return;
+        last = key;
+        try { window.webkit.messageHandlers.lowkeyEditing.postMessage(msg); } catch (e) {}
       };
       document.addEventListener('focusin', report, true);
       document.addEventListener('focusout', () => setTimeout(report, 0), true);
-    })();
+      setInterval(report, 400);
+      report();
+    })()
     """
 }
 
 enum WebKitSupport {
     /// A new configuration for a window. Popups must instead use the configuration WebKit passes in.
-    @MainActor static func configuration(dataStore: WKWebsiteDataStore) -> WKWebViewConfiguration {
+    static func configuration(dataStore: WKWebsiteDataStore) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         let content = WKUserContentController()
         content.addUserScript(WKUserScript(source: EditingReporter.script, injectionTime: .atDocumentEnd,
-                                           forMainFrameOnly: false, in: .defaultClient))
-        content.add(EditingReporter.shared, contentWorld: .defaultClient, name: EditingReporter.name)
+                                           forMainFrameOnly: false))
+        content.add(EditingReporter.shared, name: EditingReporter.name)
         configuration.userContentController = content
-        configuration.preferences.isElementFullscreenEnabled = true
         configuration.applicationNameForUserAgent = userAgentSuffix
         return configuration
     }
@@ -92,7 +137,7 @@ enum WebKitSupport {
         return "lowkey/\(version)"
     }
 
-    @MainActor static func makeWebView(configuration: WKWebViewConfiguration) -> LowkeyWebView {
+    static func makeWebView(configuration: WKWebViewConfiguration) -> LowkeyWebView {
         let webView = LowkeyWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
@@ -120,7 +165,10 @@ enum WebKitSupport {
 }
 
 /// Saves downloads to ~/Downloads with a unique name and bounces the Downloads stack.
-@MainActor final class DownloadManager: NSObject, WKDownloadDelegate {
+/// `WKDownload` needs the macOS 11 SDK; on Catalina WebKit downloads without a delegate.
+#if compiler(>=5.4)
+@available(macOS 11.3, *)
+final class DownloadManager: NSObject, WKDownloadDelegate {
     static let shared = DownloadManager()
     private var destinations: [ObjectIdentifier: URL] = [:]
 
@@ -129,12 +177,12 @@ enum WebKitSupport {
         let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
         let name = (suggestedFilename as NSString).lastPathComponent
         let safe = name.isEmpty ? "download" : name
-        var url = folder.appending(path: safe)
+        var url = folder.appendingPathComponent(safe)
         var index = 2
         let base = (safe as NSString).deletingPathExtension
         let ext = (safe as NSString).pathExtension
         while FileManager.default.fileExists(atPath: url.path) {
-            url = folder.appending(path: ext.isEmpty ? "\(base) \(index)" : "\(base) \(index).\(ext)")
+            url = folder.appendingPathComponent(ext.isEmpty ? "\(base) \(index)" : "\(base) \(index).\(ext)")
             index += 1
         }
         destinations[ObjectIdentifier(download)] = url
@@ -148,12 +196,13 @@ enum WebKitSupport {
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         destinations.removeValue(forKey: ObjectIdentifier(download))
-        Log.app.error("download failed: \(error.localizedDescription, privacy: .public)")
+        Log.error("download failed: \(error.localizedDescription)")
     }
 }
+#endif
 
 /// JavaScript dialogs, file pickers and HTTP sign-in prompts, shown as sheets.
-@MainActor enum PageDialogs {
+enum PageDialogs {
     static func alert(_ message: String, in window: NSWindow?, completion: @escaping () -> Void) {
         let alert = NSAlert()
         alert.messageText = message
@@ -207,7 +256,7 @@ enum WebKitSupport {
         panel.allowsMultipleSelection = allowsMultiple
         panel.canChooseDirectories = directories
         panel.canChooseFiles = !directories
-        if let window {
+        if let window = window {
             panel.beginSheetModal(for: window) { completion($0 == .OK ? panel.urls : nil) }
         } else {
             completion(panel.runModal() == .OK ? panel.urls : nil)
@@ -215,7 +264,7 @@ enum WebKitSupport {
     }
 
     private static func present(_ alert: NSAlert, in window: NSWindow?, handler: @escaping (NSApplication.ModalResponse) -> Void) {
-        if let window, window.isVisible {
+        if let window = window, window.isVisible {
             alert.beginSheetModal(for: window, completionHandler: handler)
         } else {
             handler(alert.runModal())

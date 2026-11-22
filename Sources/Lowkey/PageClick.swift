@@ -1,14 +1,15 @@
 import WebKit
 
-@MainActor enum PageClick {
-    /// Evaluate in an isolated world in the main frame. Check the document origin and
-    /// select and click synchronously in the same script, so navigation can't swap documents.
-    static func perform(in webView: WKWebView, startURL: URL, label: String) async -> String {
-        do {
-            let result = try await webView.callAsyncJavaScript(script,
-                arguments: ["site": startURL.absoluteString, "label": label], in: nil, contentWorld: .defaultClient)
-            return result as? String ?? "page unavailable"
-        } catch { return "page unavailable" }
+enum PageClick {
+    /// Evaluate in the main frame. Check the document origin and select and click
+    /// synchronously in the same script, so navigation can't swap documents.
+    /// macOS 10.15 has no isolated content worlds: the script runs in the page's world.
+    static func perform(in webView: WKWebView, startURL: URL, label: String, completion: @escaping (String) -> Void) {
+        let payload = (try? JSONSerialization.data(withJSONObject: ["site": startURL.absoluteString, "label": label]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        webView.evaluateJavaScript("(() => { const __input = \(payload); const site = __input.site, label = __input.label;\n" + script + "\n})()") { result, _ in
+            completion(result as? String ?? "page unavailable")
+        }
     }
 
     private static let script = #"""

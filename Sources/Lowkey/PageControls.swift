@@ -1,24 +1,34 @@
 import WebKit
 import LowkeyCore
 
-@MainActor enum PageControls {
-    static func run(_ command: PageCommand, args: [String], view: WKWebView, site: URL) async -> String {
+enum PageControls {
+    static func run(_ command: PageCommand, args: [String], view: WKWebView, site: URL,
+                    completion: @escaping (String) -> Void) {
         if command == .savePDF {
-            let readiness = await run(.wait, args: [], view: view, site: site)
-            guard readiness == "ok" else { return readiness == "pending" ? "page loading" : readiness }
-            guard args.count == 1 else { return "invalid" }
-            do {
-                try await PagePDF.save(view, to: URL(fileURLWithPath: args[0]))
-                return "ok"
-            } catch { return "PDF export failed: \(error.localizedDescription)" }
+            run(.wait, args: [], view: view, site: site) { readiness in
+                guard readiness == "ok" else { return completion(readiness == "pending" ? "page loading" : readiness) }
+                guard args.count == 1 else { return completion("invalid") }
+                PagePDF.save(view, to: URL(fileURLWithPath: args[0])) { error in
+                    completion(error.map { "PDF export failed: \($0.localizedDescription)" } ?? "ok")
+                }
+            }
+            return
         }
-        do {
-            let result = try await view.callAsyncJavaScript(script, arguments: ["cmd": command.rawValue, "args": args, "site": site.absoluteString], in: nil, contentWorld: .defaultClient)
-            return result as? String ?? "page unavailable"
-        } catch { return "page unavailable" }
+        // macOS 10.15 has no isolated content worlds: the script runs in the page's world.
+        view.evaluateJavaScript(script(with: command, args: args, site: site)) { result, _ in
+            completion(result as? String ?? "page unavailable")
+        }
     }
 
-    private static let script = #"""
+    private static func script(with command: PageCommand, args: [String], site: URL) -> String {
+        // The arguments are JSON-encoded, not string-interpolated: the page script parses them.
+        let payload = (try? JSONSerialization.data(withJSONObject: ["cmd": command.rawValue, "args": args, "site": site.absoluteString],
+                                                   options: [.withoutEscapingSlashes]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return "(() => { const __input = \(payload); const cmd = __input.cmd, args = __input.args, site = __input.site;\n" + scriptBody + "\n})()"
+    }
+
+    private static let scriptBody = #"""
     if (!['http:', 'https:'].includes(location.protocol) || location.origin !== new URL(site).origin) return 'wrong site origin';
     if (document.readyState === 'loading') return cmd === 'wait' ? 'pending' : 'page loading';
     if (cmd === 'wait' && !args.length) return 'ok';

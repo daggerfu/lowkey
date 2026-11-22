@@ -14,11 +14,10 @@ import LowkeyCore
         var metadata = stat()
         guard fstat(fd, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else { fail("expected a regular file") }
         guard metadata.st_size <= ControlRequest.maximumFileSize else { fail("file exceeds 8 MiB") }
-        do {
-            let bytes = try file.read(upToCount: ControlRequest.maximumFileSize + 1) ?? Data()
-            guard let request = ControlRequest(alias: alias, filename: URL(fileURLWithPath: path).lastPathComponent, bytes: bytes, field: field) else { fail("invalid filename, field label or file size") }
-            return request
-        } catch { fail("cannot read file") }
+        // The size is validated above; readDataToEndOfFile stays usable on macOS 10.15.0-10.15.3.
+        let bytes = file.readDataToEndOfFile()
+        guard let request = ControlRequest(alias: alias, filename: URL(fileURLWithPath: path).lastPathComponent, bytes: bytes, field: field) else { fail("invalid filename, field label or file size") }
+        return request
     }
 
     static func fail(_ message: String, code: Int32 = 1) -> Never {
@@ -26,7 +25,7 @@ import LowkeyCore
         exit(code)
     }
 
-    @MainActor static func main() async {
+    static func main() {
         var args = Array(CommandLine.arguments.dropFirst())
         var waitSeconds = 10
         if args.count >= 2, args[1] == "wait", let i = args.dropFirst(2).firstIndex(of: "--timeout") {
@@ -50,10 +49,11 @@ import LowkeyCore
             fail("run the helper inside lowkey.app/Contents/Helpers")
         }
         let client = NSWorkspace.shared
-        let target: NSRunningApplication
         if let running = NSRunningApplication.runningApplications(withBundleIdentifier: id).first(where: {
             $0.bundleURL?.resolvingSymlinksInPath().path == app.path
-        }) { target = running } else {
+        }) {
+            proceed(running, app: app, request: request, waitSeconds: waitSeconds)
+        } else {
             if request.command == .window(.hide) { return }
             switch request.command {
             case .page(.status, let params): print(WindowStatus(alias: request.alias).output(json: params == ["--json"])); return
@@ -62,16 +62,28 @@ import LowkeyCore
             }
             let config = NSWorkspace.OpenConfiguration()
             config.activates = false
-            do { target = try await client.openApplication(at: app, configuration: config) }
-            catch { fail(error.localizedDescription) }
+            client.openApplication(at: app, configuration: config) { target, error in
+                if let error = error { fail(error.localizedDescription) }
+                guard let target = target else { fail("cannot launch lowkey") }
+                proceed(target, app: app, request: request, waitSeconds: waitSeconds)
+            }
+            // Keep the run loop alive for the openApplication completion handler.
+            RunLoop.current.run()
         }
+    }
+
+    static func proceed(_ target: NSRunningApplication, app: URL, request: ControlRequest, waitSeconds: Int) {
         guard target.bundleURL?.resolvingSymlinksInPath().path == app.path else { fail("another copy of lowkey is running") }
         let name = ControlRequest.portName(pid: target.processIdentifier)
         // Stop waiting early when the app quits while starting.
-        guard await MessagePortClient.waitForServer(name, timeout: 4, keepWaiting: { !target.isTerminated }) else {
-            fail("lowkey did not open its control port")
+        MessagePortClient.waitForServer(name, timeout: 4, keepWaiting: { !target.isTerminated }) { available in
+            guard available else { fail("lowkey did not open its control port") }
+            finish(target: target, request: request, name: name, waitUntil: Date().addingTimeInterval(TimeInterval(waitSeconds)))
         }
-        let waitUntil = ContinuousClock.now + .seconds(waitSeconds)
+        RunLoop.current.run()
+    }
+
+    static func finish(target: NSRunningApplication, request: ControlRequest, name: String, waitUntil: Date) {
         func send() -> String {
             // Retry discovery, never the command: a timed-out toggle may already have run.
             switch MessagePortClient.send(request.payload, to: name, messageID: 1, sendTimeout: 1,
@@ -83,17 +95,22 @@ import LowkeyCore
         var reply = send()
         if case .page(.wait, _) = request.command {
             while reply == "pending" {
-                guard ContinuousClock.now < waitUntil else { fail("wait timed out") }
-                try? await Task.sleep(for: .milliseconds(120))
+                guard Date() < waitUntil else { fail("wait timed out") }
+                usleep(120_000)
                 reply = send()
             }
         }
+        conclude(target: target, request: request, reply: reply)
+    }
+
+    static func conclude(target: NSRunningApplication, request: ControlRequest, reply: String) -> Never {
         if reply.hasPrefix("PDF export failed:") { fail(reply) }
-        if reply.hasPrefix("output:") { print(reply.dropFirst(7)); return }
+        if reply.hasPrefix("output:") { print(reply.dropFirst(7)); exit(0) }
         switch reply {
-        case "ok": break
+        case "ok": exit(0)
         case "focus":
             if !target.isActive && !target.activate(options: []) { fail("macOS declined activation") }
+            exit(0)
         case "unknown site": fail("unknown site: \(request.alias)")
         case "inspection too large", "control read only", "multiple select unsupported", "option not found", "ambiguous option",
              "window not open", "wrong site origin", "label not found", "ambiguous label", "control disabled",

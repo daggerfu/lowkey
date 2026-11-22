@@ -2,7 +2,7 @@ import Foundation
 
 /// Commands for a saved site: `lowkey://ALIAS/<command>`.
 /// Deep links only drive navigation and windows; they never run page scripts.
-public enum SiteCommand: String, CaseIterable, Sendable {
+public enum SiteCommand: String, CaseIterable {
     /// Show the site window; load the start page when the window is new.
     case open
     /// Show the site and load its configured start URL, even if its window already exists.
@@ -20,7 +20,7 @@ public enum SiteCommand: String, CaseIterable, Sendable {
     case close
 }
 
-public enum DeepLink: Equatable, Sendable {
+public enum DeepLink: Equatable {
     /// `lowkey://` with no alias: show the address prompt.
     case prompt
     case site(alias: String, command: SiteCommand)
@@ -34,8 +34,8 @@ public enum DeepLink: Equatable, Sendable {
 
     public static func parse(_ url: URL) -> Result<DeepLink, ParseError> {
         guard url.scheme?.lowercased() == scheme else { return .failure(.notLowkey) }
-        guard let alias = url.host(percentEncoded: false), !alias.isEmpty else { return .success(.prompt) }
-        let parts = url.path(percentEncoded: false).split(separator: "/").map(String.init)
+        guard let alias = url.host?.removingPercentEncoding, !alias.isEmpty else { return .success(.prompt) }
+        let parts = url.path.split(separator: "/").map(String.init)
         guard let name = parts.first else { return .success(.site(alias: alias, command: .open)) }
         guard parts.count == 1, let command = SiteCommand(rawValue: name.lowercased()) else {
             return .failure(.unknownCommand(parts.joined(separator: "/")))

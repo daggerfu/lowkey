@@ -3,7 +3,7 @@ import Foundation
 
 /// Addresses and aliases submitted in the lowkey prompt. Not a log of page visits.
 /// A BobukCore `RecentList`; the file stays a plain JSON array of strings.
-public struct InputHistory: Codable, Equatable, Sendable {
+public struct InputHistory: Codable, Equatable {
     public static let limit = 1000
 
     private var list: RecentList
@@ -49,15 +49,15 @@ public struct InputHistory: Codable, Equatable, Sendable {
     }
 }
 
-public enum Suggestion: Equatable, Sendable {
+public enum Suggestion: Equatable {
     case site(Site)
     case history(String)
 
     /// The text that the prompt submits for this suggestion.
     public var text: String {
         switch self {
-        case .site(let site): site.alias
-        case .history(let text): text
+        case .site(let site): return site.alias
+        case .history(let text): return text
         }
     }
 }

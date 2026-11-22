@@ -11,7 +11,7 @@ guard app.lastPathComponent == "lowkey.app", let bundle = Bundle(url: app), let 
 }
 for (key, expected) in ["CFBundleName": "lowkey", "CFBundleDisplayName": "lowkey",
                         "CFBundleIdentifier": "io.bobuk.lowkey", "CFBundleExecutable": "Lowkey",
-                        "LSMinimumSystemVersion": "14.0"] {
+                        "LSMinimumSystemVersion": "10.15"] {
     guard info[key] as? String == expected else { fail("Unexpected \(key)") }
 }
 guard FileManager.default.isExecutableFile(atPath: app.appendingPathComponent("Contents/Helpers/lowkeyctl").path) else {

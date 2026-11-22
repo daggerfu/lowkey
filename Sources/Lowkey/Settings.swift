@@ -3,7 +3,7 @@ import BobukUI
 import LowkeyCore
 import SwiftUI
 
-@MainActor final class SettingsModel: ObservableObject {
+final class SettingsModel: ObservableObject {
     private unowned let app: AppController
     @Published var draft: Config { didSet { commit() } }
     @Published var selection: UUID?
@@ -37,10 +37,10 @@ import SwiftUI
 
     func site<T>(_ keyPath: WritableKeyPath<Site, T>, default value: T) -> Binding<T> {
         Binding(get: { [weak self] in
-            guard let self, let index = self.selectedIndex else { return value }
+            guard let self = self, let index = self.selectedIndex else { return value }
             return self.draft.sites[index][keyPath: keyPath]
         }, set: { [weak self] newValue in
-            guard let self, let index = self.selectedIndex else { return }
+            guard let self = self, let index = self.selectedIndex else { return }
             self.draft.sites[index][keyPath: keyPath] = newValue
         })
     }
@@ -61,7 +61,9 @@ import SwiftUI
         alert.informativeText = "lowkey closes its window and deletes its profile: cookies, sign-ins and site data. This can’t be undone."
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        if #available(macOS 11, *) {
+            alert.buttons.first?.hasDestructiveAction = true
+        }
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let wasSaved = store.config.site(id: site.id) != nil
         draft.sites.remove(at: index)
@@ -87,12 +89,12 @@ import SwiftUI
         colors = preset.colors(dark: editingDark)
     }
 
-    func color(for role: ThemeColorRole) -> Binding<Color> {
+    /// Native color well binding; `ColorPicker` needs macOS 11.
+    func nsColor(for role: ThemeColorRole) -> Binding<NSColor> {
         Binding(get: { [weak self] in
-            guard let self else { return .gray }
-            return Color(ThemeTokens(colors: self.colors).color(for: role))
+            NSColor(ThemeTokens(colors: self?.colors ?? ThemePreset.amber.colors(dark: false)).color(for: role))
         }, set: { [weak self] color in
-            guard let self, let rgb = NSColor(color).rgb else { return }
+            guard let self = self, let rgb = color.rgb else { return }
             let current = ThemeTokens(colors: self.colors).color(for: role)
             guard rgb.hex != current.hex else { return }
             var next = self.colors
@@ -131,25 +133,39 @@ struct SettingsView: View {
     @ObservedObject var store: Store
 
     var body: some View {
-        let activeTokens = ThemeTokens(colors: model.draft.appearance.colors(dark: ThemeCenter.shared.isDark))
-        TabView {
+        return TabView {
             SitesPane(model: model)
-                .tabItem { Label("Sites", systemImage: "rectangle.stack") }
+                .tabItem { Text("Sites") }
             AppearancePane(model: model)
-                .tabItem { Label("Appearance", systemImage: "paintpalette") }
+                .tabItem { Text("Appearance") }
             GeneralPane(model: model, store: store)
-                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Text("History") }
         }
         .padding(16)
         .frame(width: 680, height: 540)
-        .tint(activeTokens.accentColor)
+    }
+}
+
+private struct SettingsRow<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title).frame(width: 118, alignment: .leading)
+            content
+        }
     }
 }
 
 private struct SitesPane: View {
     @ObservedObject var model: SettingsModel
     @State private var originsText = ""
-    @FocusState private var originsFocused: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -158,21 +174,21 @@ private struct SitesPane: View {
                     ForEach(model.draft.sites) { site in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(site.displayTitle).lineLimit(1)
-                            Text(site.alias).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text(site.alias).font(.system(.caption, design: .monospaced)).foregroundColor(.secondary)
                         }
                         .tag(site.id)
                     }
                 }
-                .listStyle(.bordered(alternatesRowBackgrounds: false))
+                .listStyle(PlainListStyle())
                 HStack(spacing: 2) {
-                    Button(action: model.addSite) { Image(systemName: "plus").frame(width: 18, height: 16) }
-                        .help("Add a site").accessibilityLabel("Add a site")
-                    Button(action: model.removeSelected) { Image(systemName: "minus").frame(width: 18, height: 16) }
-                        .help("Remove the site and its data").accessibilityLabel("Remove the selected site")
+                    Button(action: model.addSite) { Image(nsImage: NSImage(named: NSImage.addTemplateName)!).frame(width: 18, height: 16) }
+                        .accessibility(label: Text("Add a site"))
+                    Button(action: model.removeSelected) { Image(nsImage: NSImage(named: NSImage.removeTemplateName)!).frame(width: 18, height: 16) }
+                        .accessibility(label: Text("Remove the selected site"))
                         .disabled(model.selection == nil)
                     Spacer()
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(BorderlessButtonStyle())
                 .padding(.top, 6)
             }
             .frame(width: 190)
@@ -183,25 +199,24 @@ private struct SitesPane: View {
                 VStack(spacing: 8) {
                     Text("No sites yet").font(.headline)
                     Text("Add a site with +, give it an alias such as HA, and open it with lowkey://HA/open.")
-                        .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center).foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onAppear(perform: loadOrigins)
-        .onChange(of: model.selection) { loadOrigins() }
-        .onChange(of: originsFocused) { if !originsFocused { saveOrigins() } }
+        .onReceive(model.$selection) { _ in loadOrigins() }
     }
 
     private var detail: some View {
         let alias = model.site(\.alias, default: "")
         return Form {
             TextField("Alias", text: alias)
-                .font(.body.monospaced())
-            LabeledContent("Deep link") {
+                .font(.system(.body, design: .monospaced))
+            SettingsRow("Deep link") {
                 HStack {
-                    Text(DeepLink.url(alias: alias.wrappedValue)).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    Text(DeepLink.url(alias: alias.wrappedValue)).font(.system(.caption, design: .monospaced)).foregroundColor(.secondary)
+                        .lineLimit(1)
                     Button("Copy") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(DeepLink.url(alias: alias.wrappedValue), forType: .string)
@@ -209,29 +224,32 @@ private struct SitesPane: View {
                     .controlSize(.small)
                 }
             }
-            TextField("Title", text: model.site(\.title, default: ""), prompt: Text("Optional"))
+            TextField("Title", text: model.site(\.title, default: ""))
             TextField("Start URL", text: model.site(\.startURL, default: ""))
-                .font(.body.monospaced())
+                .font(.system(.body, design: .monospaced))
             Picker("Links to other sites", selection: model.site(\.externalLinks, default: .defaultBrowser)) {
                 Text("Open in the default browser").tag(ExternalLinkPolicy.defaultBrowser)
                 Text("Open in lowkey").tag(ExternalLinkPolicy.lowkey)
             }
-            TextField("Own origins", text: $originsText, prompt: Text("ha.example.com, *.nabu.casa"))
-                .font(.body.monospaced())
-                .focused($originsFocused)
-                .onSubmit(saveOrigins)
+            SettingsRow("Own origins") {
+                TextField("", text: $originsText, onCommit: saveOrigins)
+                    .font(.system(.body, design: .monospaced))
+            }
             Text("Addresses that count as this site, separated by commas. The start URL’s origin always counts. Sign-in pages (Google, Apple, Microsoft…) open in a separate window and return here.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundColor(.secondary)
             if !model.problems.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(model.problems, id: \.self) { problem in
-                        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).font(.caption)
+                        HStack(spacing: 4) {
+                            Image(nsImage: NSImage(named: NSImage.cautionName)!)
+                            Text(problem)
+                        }
+                        .foregroundColor(.red).font(.caption)
                     }
-                    Text("Changes to sites are saved when these are fixed.").font(.caption).foregroundStyle(.secondary)
+                    Text("Changes to sites are saved when these are fixed.").font(.caption).foregroundColor(.secondary)
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private func loadOrigins() {
@@ -264,40 +282,47 @@ struct AppearancePane: View {
         (.danger, "Danger"),
     ]
 
+    /// Switching to Light/Dark edits that palette right away (macOS 10.15 has no `onChange`).
+    private var mode: Binding<ThemeMode> {
+        Binding(get: { self.model.draft.appearance.mode }, set: { mode in
+            self.model.draft.appearance.mode = mode
+            if mode == .light { self.model.editingDark = false }
+            else if mode == .dark { self.model.editingDark = true }
+        })
+    }
+
     private func colorRow(_ role: ThemeColorRole, title: String) -> some View {
-        LabeledContent(title) {
+        SettingsRow(title) {
             HStack(spacing: 8) {
                 if model.canResetToAuto(role) {
                     Button("Auto") { model.resetToAuto(role) }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(BorderlessButtonStyle())
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .help("Use automatic contrast-matched color")
+                        .foregroundColor(.secondary)
                 }
-                ColorPicker(title, selection: model.color(for: role), supportsOpacity: false)
-                    .labelsHidden()
+                ColorWell(color: model.nsColor(for: role), accessibilityLabel: title)
             }
         }
     }
 
     var body: some View {
         let tokens = ThemeTokens(colors: model.colors)
-        Form {
-            Picker("Mode", selection: $model.draft.appearance.mode) {
-                Text("Tint").tag(ThemeMode.tint)
-                Text("Page").tag(ThemeMode.page)
-                Text("System").tag(ThemeMode.system)
-                Text("Light").tag(ThemeMode.light)
-                Text("Dark").tag(ThemeMode.dark)
-            }
-            .pickerStyle(.segmented)
+        return Form {
             Section {
+                Picker("Mode", selection: mode) {
+                    Text("Tint").tag(ThemeMode.tint)
+                    Text("Page").tag(ThemeMode.page)
+                    Text("System").tag(ThemeMode.system)
+                    Text("Light").tag(ThemeMode.light)
+                    Text("Dark").tag(ThemeMode.dark)
+                }
+                .pickerStyle(SegmentedPickerStyle())
                 Picker("Edit colors for", selection: $model.editingDark) {
                     Text("Light").tag(false)
                     Text("Dark").tag(true)
                 }
-                .pickerStyle(.segmented)
-                LabeledContent("Theme") {
+                .pickerStyle(SegmentedPickerStyle())
+                SettingsRow("Theme") {
                     HStack(spacing: 10) {
                         ThemeSwatchStrip(tokens: tokens)
                         Picker("Theme", selection: Binding(
@@ -320,40 +345,72 @@ struct AppearancePane: View {
                 ForEach(Self.coreRoles, id: \.0) { role, title in
                     colorRow(role, title: title)
                 }
-                DisclosureGroup("More colors", isExpanded: $showMoreColors) {
-                    ForEach(Self.advancedRoles, id: \.0) { role, title in
-                        colorRow(role, title: title)
+                Group {
+                    Toggle("More colors", isOn: $showMoreColors)
+                    if showMoreColors {
+                        ForEach(Self.advancedRoles, id: \.0) { role, title in
+                            colorRow(role, title: title)
+                        }
                     }
                 }
-                LabeledContent("Preview") {
+                SettingsRow("Preview") {
                     HStack(alignment: .top, spacing: 10) {
                         StripPreview(tokens: tokens)
                         ThemePreview(tokens: tokens)
                     }
                 }
                 if tokens.lowAccentContrast {
-                    Label("The accent color is hard to see on this panel.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(tokens.dangerColor)
+                    HStack(spacing: 4) {
+                        Image(nsImage: NSImage(named: NSImage.cautionName)!)
+                        Text("The accent color is hard to see on this panel.")
+                    }
+                    .font(.caption).foregroundColor(tokens.dangerColor)
                 }
                 if tokens.lowInkContrast {
-                    Label("The text color has low contrast on this panel.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(tokens.dangerColor)
+                    HStack(spacing: 4) {
+                        Image(nsImage: NSImage(named: NSImage.cautionName)!)
+                        Text("The text color has low contrast on this panel.")
+                    }
+                    .font(.caption).foregroundColor(tokens.dangerColor)
                 }
                 HStack {
                     Spacer()
                     Button("Reset to Amber", action: model.resetColors)
                         .disabled(model.isDefaultForEditingMode)
                 }
-            } footer: {
                 Text("Tint follows the page’s theme color or background on the window strip. Page follows each page’s light or dark background. Light and dark palettes keep their own colors; lowkey never recolors the page.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundColor(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .onChange(of: model.draft.appearance.mode) { _, next in
-            if next == .light { model.editingDark = false }
-            else if next == .dark { model.editingDark = true }
-        }
+    }
+}
+/// Native color control (macOS 10.15): SwiftUI's `ColorPicker` needs macOS 11.
+private struct ColorWell: NSViewRepresentable {
+    @Binding var color: NSColor
+    let accessibilityLabel: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let well = NSColorWell(frame: .zero)
+        well.target = context.coordinator
+        well.action = #selector(Coordinator.colorChanged(_:))
+        well.controlSize = .small
+        well.setAccessibilityLabel(accessibilityLabel)
+        return well
+    }
+
+    func updateNSView(_ well: NSColorWell, context: Context) {
+        context.coordinator.parent = self
+        well.color = color
+        well.setAccessibilityLabel(accessibilityLabel)
+    }
+
+    final class Coordinator: NSObject {
+        var parent: ColorWell
+        init(_ parent: ColorWell) { self.parent = parent }
+
+        @objc func colorChanged(_ well: NSColorWell) { parent.color = well.color }
     }
 }
 
@@ -369,17 +426,17 @@ private struct StripPreview: View {
                 Text("‹  ⇤  ›")
             }
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(tokens.mutedColor)
+            .foregroundColor(tokens.mutedColor)
             .padding(.horizontal, 6)
             .frame(height: ChromeMetrics.stripHeight)
             .background(tokens.panelColor)
             Rectangle().fill(tokens.strokeColor).frame(height: 1)
-            Rectangle().fill(Color(nsColor: .textBackgroundColor)).frame(height: 55)
+            Rectangle().fill(Color(NSColor.textBackgroundColor)).frame(height: 55)
         }
         .frame(width: 170)
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(tokens.lineColor, lineWidth: 1))
-        .accessibilityHidden(true)
+        .accessibility(hidden: true)
     }
 }
 
@@ -389,28 +446,35 @@ private struct GeneralPane: View {
 
     var body: some View {
         Form {
-            Section("Input history") {
-                LabeledContent("Saved entries", value: "\(store.history.entries.count) of \(InputHistory.limit)")
+            Section(header: Text("Input history")) {
+                SettingsRow("Saved entries") {
+                    Spacer()
+                    Text("\(store.history.entries.count) of \(InputHistory.limit)")
+                }
                 Text("Addresses and aliases you type in ⌘L. To forget one entry, point at it in the ⌘L list and click ×.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundColor(.secondary)
                 Button("Clear History…", action: model.clearHistory)
                     .disabled(store.history.entries.isEmpty)
             }
-            Section("Files") {
-                LabeledContent("Settings") {
+            Section(header: Text("Files")) {
+                SettingsRow("Settings") {
+                    Spacer()
                     Button(store.configURL.path) { NSWorkspace.shared.activateFileViewerSelecting([store.configURL]) }
-                        .buttonStyle(.link).font(.caption.monospaced())
+                        .buttonStyle(PlainButtonStyle()).font(.system(.caption, design: .monospaced))
                 }
                 if let problem = store.problem {
-                    Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).font(.caption)
+                    HStack(spacing: 4) {
+                        Image(nsImage: NSImage(named: NSImage.cautionName)!)
+                        Text(problem)
+                    }
+                    .foregroundColor(.red).font(.caption)
                 }
             }
         }
-        .formStyle(.grouped)
     }
 }
 
-@MainActor final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let model: SettingsModel
     private var themeObserver: NSObjectProtocol?
 
@@ -428,7 +492,7 @@ private struct GeneralPane: View {
         if !window.setFrameUsingName("LowkeySettings") { window.center() }
         applyTheme()
         themeObserver = NotificationCenter.default.addObserver(forName: ThemeCenter.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() }
+            self?.applyTheme()
         }
     }
 
@@ -441,7 +505,7 @@ private struct GeneralPane: View {
     func show() {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func lowkeyCloseWindow(_ sender: Any?) { close() }

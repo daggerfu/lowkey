@@ -52,7 +52,9 @@ public final class FileWatcher {
         fileSource?.cancel()
         for source in folderFileSources { source.cancel() }
         pending?.cancel()
+        #if !canImport(Darwin)
         linuxTimer?.cancel()
+        #endif
     }
 
     /// Call after the app itself wrote the file: an atomic write replaced the watched inode.
@@ -63,11 +65,15 @@ public final class FileWatcher {
         fileSource?.cancel()
         for source in folderFileSources { source.cancel() }
         pending?.cancel()
+        #if !canImport(Darwin)
         linuxTimer?.cancel()
+        #endif
         directorySource = nil
         fileSource = nil
         folderFileSources = []
+        #if !canImport(Darwin)
         linuxTimer = nil
+        #endif
     }
 
     private func watchFile() {

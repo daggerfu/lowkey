@@ -5,7 +5,7 @@ import BobukCore
 import BobukUI
 
 /// The ⌘L prompt: an alias or an address, with suggestions from saved sites and input history.
-@MainActor final class AddressPanel: BobukPanel, NSTextFieldDelegate, PageThemeProviding {
+final class AddressPanel: BobukPanel, NSTextFieldDelegate, PageThemeProviding {
     private unowned let app: AppController
     private weak var target: WebWindowController?
     private var newWindow = false
@@ -117,7 +117,7 @@ import BobukUI
               inCurrentProfile: Bool = false) {
         configure(target: target, newWindow: newWindow, prefill: prefill, message: message,
                   inCurrentProfile: inCurrentProfile)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
         makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
@@ -144,7 +144,7 @@ import BobukUI
 
     private func setInfo(message: String?) {
         infoShowsError = message != nil
-        if let message {
+        if let message = message {
             infoGlyph.isHidden = true
             infoLabel.stringValue = message
             infoLabel.font = .systemFont(ofSize: 11.5)
@@ -298,7 +298,7 @@ import BobukUI
     }
 }
 
-@MainActor private final class Separator: NSView {
+private final class Separator: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 1) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor(lowkeyTokens.stroke).setFill()

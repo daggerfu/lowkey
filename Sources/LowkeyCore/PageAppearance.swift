@@ -5,9 +5,9 @@ import Foundation
 public enum PageAppearance {
     public static func isDark(background: RGB, previous: Bool? = nil) -> Bool {
         switch previous {
-        case true: background.luminance < 0.22
-        case false: background.luminance < 0.15
-        case nil: background.luminance < 0.18
+        case .some(true): return background.luminance < 0.22
+        case .some(false): return background.luminance < 0.15
+        case .none: return background.luminance < 0.18
         }
     }
 
@@ -22,7 +22,7 @@ public enum PageAppearance {
 }
 
 /// A color read from the page, with its alpha.
-public struct PageColor: Equatable, Sendable {
+public struct PageColor: Equatable {
     public var rgb: RGB
     public var alpha: Double
 

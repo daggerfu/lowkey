@@ -25,7 +25,7 @@ enum WindowKind: Equatable {
 }
 
 /// Shared behavior of site windows and sign-in/popup windows.
-@MainActor class WebWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+class WebWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     let webView: LowkeyWebView
     unowned let app: AppController
     var chrome: LowkeyWindow { window as! LowkeyWindow }
@@ -36,7 +36,10 @@ enum WindowKind: Equatable {
     private var profileLocation: URL?
     private var observations: [NSKeyValueObservation] = []
     private var pageColorReady = false
-    private var pageAppearanceTask: Task<Void, Never>?
+    /// Latest colors reported by the page script (see `EditingReporter`).
+    private var pageBackgroundColor: PageColor?
+    private var pageThemeColor: PageColor?
+    private var appearanceWork: DispatchWorkItem?
 
     init(window: LowkeyWindow, webView: LowkeyWebView, app: AppController) {
         self.webView = webView
@@ -49,12 +52,6 @@ enum WindowKind: Equatable {
         observations = [
             watch(\.title), watch(\.url), watch(\.canGoBack), watch(\.canGoForward),
             watch(\.estimatedProgress), watch(\.isLoading),
-            webView.observe(\.underPageBackgroundColor) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.schedulePageAppearance() }
-            },
-            webView.observe(\.themeColor) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.schedulePageAppearance() }
-            },
         ]
         window.strip.closeButton.onPress = { [weak self] flags in self?.closeButtonPressed(flags) }
     }
@@ -63,36 +60,44 @@ enum WindowKind: Equatable {
 
     private func watch<Value>(_ keyPath: KeyPath<WKWebView, Value>) -> NSKeyValueObservation {
         (webView as WKWebView).observe(keyPath) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.updateChrome() }
+            // KVO for these keys is delivered on the main thread.
+            self?.updateChrome()
         }
     }
 
-    /// WebKit derives this color from the rendered html/body background. Read it, never override it.
-    /// Debounce rendering/animation updates and classify per window, not for the entire application.
+    /// Called by `EditingReporter` when the page's background or theme-color changed.
+    func pageColors(background: PageColor?, theme: PageColor?) {
+        pageBackgroundColor = background
+        pageThemeColor = theme
+        schedulePageAppearance()
+    }
+
+    /// Classify per window, not for the entire application; debounce rendering/animation updates.
     private func schedulePageAppearance() {
         guard pageColorReady else { return }
-        pageAppearanceTask?.cancel()
-        pageAppearanceTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
-            guard let self, self.pageColorReady else { return }
-            let background = self.webView.underPageBackgroundColor.usingColorSpace(.sRGB)
-            let hint = self.webView.themeColor?.usingColorSpace(.sRGB)
-            let color = [background, hint].compactMap { $0 }.first { $0.alphaComponent >= 0.9 }
-            self.chrome.pageIsDark = color?.rgb.map {
-                PageAppearance.isDark(background: $0, previous: self.chrome.pageIsDark)
+        appearanceWork?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self, self.pageColorReady else { return }
+            let background = self.pageBackgroundColor
+            let hint = self.pageThemeColor
+            let color = [background, hint].compactMap { $0 }.first { $0.isUsable }
+            self.chrome.pageIsDark = color.map {
+                PageAppearance.isDark(background: $0.rgb, previous: self.chrome.pageIsDark)
             }
             // Tint, in every mode so a switch in Settings shows at once: theme-color first.
             // With no usable color the previous one stays; navigation never clears it.
-            self.chrome.tint = PageAppearance.tint(themeColor: hint?.pageColor, background: background?.pageColor,
+            self.chrome.tint = PageAppearance.tint(themeColor: hint, background: background,
                                                    previous: self.chrome.tint)
         }
+        appearanceWork = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120), execute: item)
     }
 
     /// The saved site whose rules apply here; nil for ordinary windows.
     var site: Site? { nil }
 
     func updateChrome() {
-        let title = webView.title.flatMap { $0.isEmpty ? nil : $0 } ?? webView.url?.host() ?? "Lowkey"
+        let title = webView.title.flatMap { $0.isEmpty ? nil : $0 } ?? webView.url?.host ?? "Lowkey"
         window?.title = title
         chrome.accentBar.progress = webView.isLoading ? webView.estimatedProgress : nil
     }
@@ -121,7 +126,7 @@ enum WindowKind: Equatable {
     }
 
     func reloadPage() {
-        if let failedURL { load(failedURL) } else { webView.reload() }
+        if let failedURL = failedURL { load(failedURL) } else { webView.reload() }
     }
 
     /// Handles a main-frame navigation before WebKit loads it. Return true when it was handled elsewhere.
@@ -136,7 +141,7 @@ enum WindowKind: Equatable {
     // MARK: Menu actions (responder chain)
 
     @objc func lowkeySavePDF(_ sender: Any?) {
-        guard let window else { return }
+        guard let window = window else { return }
         PagePDF.chooseDestination(for: webView, in: window)
     }
     @objc func lowkeyReload(_ sender: Any?) { reloadPage() }
@@ -144,16 +149,16 @@ enum WindowKind: Equatable {
     @objc func lowkeyForward(_ sender: Any?) { webView.goForward() }
     @objc func lowkeyCloseWindow(_ sender: Any?) { window?.close() }
     @objc func lowkeyCloseSite(_ sender: Any?) { window?.close() }
-    @objc func lowkeyZoomIn(_ sender: Any?) { webView.pageZoom = min(3, webView.pageZoom + 0.1) }
-    @objc func lowkeyZoomOut(_ sender: Any?) { webView.pageZoom = max(0.5, webView.pageZoom - 0.1) }
-    @objc func lowkeyActualSize(_ sender: Any?) { webView.pageZoom = 1 }
+    @objc func lowkeyZoomIn(_ sender: Any?) { webView.magnification = min(3, webView.magnification + 0.1) }
+    @objc func lowkeyZoomOut(_ sender: Any?) { webView.magnification = max(0.5, webView.magnification - 0.1) }
+    @objc func lowkeyActualSize(_ sender: Any?) { webView.magnification = 1 }
 
     @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
-        case #selector(lowkeySavePDF(_:)): webView.url != nil && !webView.isLoading
-        case #selector(lowkeyBack(_:)): webView.canGoBack
-        case #selector(lowkeyForward(_:)): webView.canGoForward
-        default: true
+        case #selector(lowkeySavePDF(_:)): return webView.url != nil && !webView.isLoading
+        case #selector(lowkeyBack(_:)): return webView.canGoBack
+        case #selector(lowkeyForward(_:)): return webView.canGoForward
+        default: return true
         }
     }
 
@@ -162,7 +167,7 @@ enum WindowKind: Equatable {
     func windowWillClose(_ notification: Notification) {
         for popup in popups { popup.close() }
         popups.removeAll()
-        pageAppearanceTask?.cancel()
+        appearanceWork?.cancel()
         webView.stopLoading()
         app.windowDidClose(self)
     }
@@ -170,7 +175,7 @@ enum WindowKind: Equatable {
     // MARK: Navigation
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
-                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url, let scheme = url.scheme?.lowercased() else { return decisionHandler(.allow) }
         if scheme != "http" && scheme != "https" {
             if LinkPolicy.isEmbeddedScheme(scheme) { return decisionHandler(.allow) }
@@ -180,7 +185,6 @@ enum WindowKind: Equatable {
             }
             return decisionHandler(.cancel)
         }
-        if action.shouldPerformDownload { return decisionHandler(.download) }
         guard action.targetFrame?.isMainFrame ?? true else { return decisionHandler(.allow) }
         if action.navigationType == .other, consumeProfileLocation(url) {
             return decisionHandler(.allow)
@@ -189,29 +193,44 @@ enum WindowKind: Equatable {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
-                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         let disposition = (response.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
         if response.isForMainFrame && (!response.canShowMIMEType || disposition.lowercased().hasPrefix("attachment")) {
-            decisionHandler(.download)
+            // WKDownload needs the macOS 11 SDK; Catalina WebKit downloads on its own after .cancel.
+            #if compiler(>=5.4)
+            if #available(macOS 11.3, *) {
+                decisionHandler(.download)
+            } else {
+                decisionHandler(.cancel)
+            }
+            #else
+            decisionHandler(.cancel)
+            #endif
         } else {
             decisionHandler(.allow)
         }
     }
 
+    #if compiler(>=5.4)
+    @available(macOS 11.3, *)
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         download.delegate = DownloadManager.shared
     }
 
+    @available(macOS 11.3, *)
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         download.delegate = DownloadManager.shared
     }
+    #endif
 
     private(set) var pendingDocument = false
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         pendingDocument = true
         pageColorReady = false
-        pageAppearanceTask?.cancel()
+        appearanceWork?.cancel()
+        pageBackgroundColor = nil
+        pageThemeColor = nil
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -242,14 +261,14 @@ enum WindowKind: Equatable {
     }
 
     func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
-                 completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let method = challenge.protectionSpace.authenticationMethod
         guard method == NSURLAuthenticationMethodHTTPBasic || method == NSURLAuthenticationMethodHTTPDigest else {
             return completionHandler(.performDefaultHandling, nil)
         }
         guard challenge.previousFailureCount < 3 else { return completionHandler(.cancelAuthenticationChallenge, nil) }
         PageDialogs.credentials(host: challenge.protectionSpace.host, in: window) { credential in
-            if let credential { completionHandler(.useCredential, credential) }
+            if let credential = credential { completionHandler(.useCredential, credential) }
             else { completionHandler(.cancelAuthenticationChallenge, nil) }
         }
     }
@@ -265,7 +284,7 @@ enum WindowKind: Equatable {
         let url = action.request.url
         let blank = url == nil || url!.absoluteString.isEmpty || url!.absoluteString == "about:blank"
         let sized = windowFeatures.width != nil || windowFeatures.height != nil
-        if let url, !blank, !sized, !AuthProviders.isSignIn(url) {
+        if let url = url, !blank, !sized, !AuthProviders.isSignIn(url) {
             // target=_blank or window.open without a size. No tabs: open it here, outside, or (⌘) in a new window.
             openLink(url, request: action.request, newWindow: action.modifierFlags.contains(.command))
             return nil
@@ -298,29 +317,29 @@ enum WindowKind: Equatable {
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
-                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable () -> Void) {
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
         PageDialogs.alert(message, in: window, completion: completionHandler)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
-                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable (Bool) -> Void) {
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         PageDialogs.confirm(message, in: window, completion: completionHandler)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
-                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
         PageDialogs.prompt(prompt, defaultText: defaultText, in: window, completion: completionHandler)
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo,
-                 completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void) {
+                 completionHandler: @escaping ([URL]?) -> Void) {
         PageDialogs.openFiles(allowsMultiple: parameters.allowsMultipleSelection, directories: parameters.allowsDirectories,
                               in: window, completion: completionHandler)
     }
 }
 
 /// A site window: a saved site (by alias) or an ordinary window.
-@MainActor final class BrowserWindowController: WebWindowController {
+final class BrowserWindowController: WebWindowController {
     let kind: WindowKind
     /// The first page of an ordinary window; saved sites use their configured start URL.
     private let initialURL: URL
@@ -344,7 +363,7 @@ enum WindowKind: Equatable {
         forwardButton.onPress = { [weak self] _ in self?.webView.goForward() }
         startButton.onPress = { [weak self] _ in self?.goToStart() }
 
-        if let placement {
+        if let placement = placement {
             placement.restore(window)
         } else if let key = NSApp.keyWindow as? LowkeyWindow, key.isVisible {
             window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: key.frame.minX, y: key.frame.maxY)))
@@ -365,7 +384,7 @@ enum WindowKind: Equatable {
     func show() {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func goToStart() { load(startURL) }
@@ -378,12 +397,12 @@ enum WindowKind: Equatable {
             if window?.isMiniaturized == true { window?.deminiaturize(nil) }
             show()
         case .toggle:
-            guard let window else { return }
+            guard let window = window else { return }
             let order = beforeActivation ?? ToggleWindowOrder()
             switch WindowToggle.action(isVisible: window.isVisible, isMiniaturized: window.isMiniaturized,
                                        isFrontmost: beforeActivation == nil && order.isFrontmost(window)) {
             case .hide:
-                order.hide(window) { hide() }
+                order.hide(window) { self.hide() }
             case .show:
                 if window.isMiniaturized {
                     window.deminiaturize(nil)
@@ -411,7 +430,7 @@ enum WindowKind: Equatable {
     // MARK: Saved-site window geometry
 
     func savePlacement() {
-        guard let window else { return }
+        guard let window = window else { return }
         placement?.save(window)
     }
 
@@ -420,7 +439,7 @@ enum WindowKind: Equatable {
     func windowWillEnterFullScreen(_ notification: Notification) { placement?.willEnterFullScreen() }
     func windowWillExitFullScreen(_ notification: Notification) { placement?.willExitFullScreen() }
     func windowDidExitFullScreen(_ notification: Notification) {
-        guard let window else { return }
+        guard let window = window else { return }
         placement?.didExitFullScreen(window)
     }
     func windowDidFailToEnterFullScreen(_ window: NSWindow) { placement?.didFailToEnterFullScreen(window) }
@@ -452,7 +471,7 @@ enum WindowKind: Equatable {
 
     override func intercept(_ action: WKNavigationAction, url: URL) -> Bool {
         if super.intercept(action, url: url) { return true }
-        guard let site else { return false }
+        guard let site = site else { return false }
         if AuthProviders.isSignIn(url) && !LinkPolicy.isPartOfSite(url, site: site) {
             openSignIn(action.request)
             return true
@@ -492,7 +511,7 @@ enum WindowKind: Equatable {
 }
 
 /// A popup (`window.open` with a size) or a sign-in window. Shares the owner's profile.
-@MainActor final class PopupWindowController: WebWindowController {
+final class PopupWindowController: WebWindowController {
     private weak var opener: WebWindowController?
     /// Sign-in mode: navigation back into the site goes to the owner window and this window closes.
     private let returnsToSite: Bool
@@ -525,7 +544,7 @@ enum WindowKind: Equatable {
     override var site: Site? { opener?.site }
 
     func present() {
-        guard let window else { return }
+        guard let window = window else { return }
         if let parent = opener?.window, parent.isVisible {
             let frame = window.frame
             window.setFrameOrigin(NSPoint(x: parent.frame.midX - frame.width / 2,
@@ -540,12 +559,12 @@ enum WindowKind: Equatable {
     override func updateChrome() {
         super.updateChrome()
         let url = webView.url
-        originBar.update(host: url?.host() ?? "", secure: url?.scheme == "https" && webView.hasOnlySecureContent)
+        originBar.update(host: url?.host ?? "", secure: url?.scheme == "https" && webView.hasOnlySecureContent)
     }
 
     override func intercept(_ action: WKNavigationAction, url: URL) -> Bool {
         if super.intercept(action, url: url) { return true }
-        if returnsToSite, let owner = opener, let site, LinkPolicy.isPartOfSite(url, site: site), !AuthProviders.isSignIn(url) {
+        if returnsToSite, let owner = opener, let site = site, LinkPolicy.isPartOfSite(url, site: site), !AuthProviders.isSignIn(url) {
             owner.failedURL = nil
             owner.webView.load(action.request)
             window?.close()
@@ -568,7 +587,7 @@ enum WindowKind: Equatable {
 }
 
 /// The address line of a popup or sign-in window: who is asking for the password.
-@MainActor final class OriginBar: NSView {
+final class OriginBar: NSView {
     private let label = NSTextField(labelWithString: "")
     private let lock = GlyphView(glyph: .lock)
 

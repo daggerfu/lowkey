@@ -4,14 +4,14 @@ import LowkeyCore
 
 /// Launch Services can activate lowkey before delivering a URL, raising the previous key window.
 /// Keep other windows behind the same apps when a single saved-site window is toggled.
-@MainActor struct ToggleWindowOrder {
+struct ToggleWindowOrder {
     private let stack = Self.visibleNormalWindows()
-    private let timestamp = ContinuousClock.now
+    private let timestamp = Date()
 
     // The URL can arrive just after activation, on a later run-loop turn. Don't reuse a
     // snapshot from an unrelated activation (such as switching to lowkey via the Dock).
     static func recentActivation(_ snapshot: Self?) -> Self? {
-        guard let snapshot, ContinuousClock.now - snapshot.timestamp < .milliseconds(250) else { return nil }
+        guard let snapshot = snapshot, Date().timeIntervalSince(snapshot.timestamp) < 0.25 else { return nil }
         return snapshot
     }
 

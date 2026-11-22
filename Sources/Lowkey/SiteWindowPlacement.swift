@@ -2,7 +2,7 @@ import AppKit
 
 /// Native window geometry, keyed by the site's stable profile ID rather than its editable alias.
 /// Uses AppKit's frame format, including screen geometry, so restore can adapt to display changes.
-@MainActor final class SiteWindowPlacement {
+final class SiteWindowPlacement {
     let name: NSWindow.FrameAutosaveName
     private var ready = false
     private var inFullScreenTransition = false

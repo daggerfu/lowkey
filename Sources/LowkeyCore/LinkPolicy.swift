@@ -1,13 +1,13 @@
 import Foundation
 
 /// Scheme, host and port. Default ports are made explicit, so `https://a` equals `https://a:443`.
-public struct Origin: Hashable, Sendable, CustomStringConvertible {
+public struct Origin: Hashable, CustomStringConvertible {
     public let scheme: String
     public let host: String
     public let port: Int
 
     public init?(_ url: URL) {
-        guard let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
+        guard let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased(), !host.isEmpty else { return nil }
         guard let port = url.port ?? Self.defaultPort(scheme) else { return nil }
         self.scheme = scheme
         self.host = host
@@ -16,9 +16,9 @@ public struct Origin: Hashable, Sendable, CustomStringConvertible {
 
     static func defaultPort(_ scheme: String) -> Int? {
         switch scheme {
-        case "http": 80
-        case "https": 443
-        default: nil
+        case "http": return 80
+        case "https": return 443
+        default: return nil
         }
     }
 
@@ -28,7 +28,7 @@ public struct Origin: Hashable, Sendable, CustomStringConvertible {
 }
 
 /// One entry of "own origins": `https://ha.example.com`, `ha.example.com:8123` or `*.nabu.casa`.
-public struct OriginPattern: Equatable, Sendable {
+public struct OriginPattern: Equatable {
     /// `nil` accepts http and https.
     let scheme: String?
     let host: String
@@ -64,7 +64,7 @@ public struct OriginPattern: Equatable, Sendable {
     }
 
     public func matches(_ origin: Origin) -> Bool {
-        if let scheme { guard origin.scheme == scheme else { return false } }
+        if let scheme = scheme { guard origin.scheme == scheme else { return false } }
         else { guard origin.scheme == "http" || origin.scheme == "https" else { return false } }
         // `*.example.com` covers subdomains only, as in certificates.
         let hostMatches = wildcard ? origin.host.hasSuffix("." + host) : origin.host == host
@@ -74,7 +74,7 @@ public struct OriginPattern: Equatable, Sendable {
     }
 }
 
-public enum LinkDecision: Equatable, Sendable {
+public enum LinkDecision: Equatable {
     /// Load in this Lowkey window.
     case stay
     /// Hand off to the default browser (or the app registered for the scheme).
@@ -93,7 +93,7 @@ public enum LinkPolicy {
     public static func decide(linkTo url: URL, site: Site?) -> LinkDecision {
         guard let scheme = url.scheme?.lowercased() else { return .stay }
         if scheme != "http" && scheme != "https" { return isEmbeddedScheme(scheme) ? .stay : .openExternally }
-        guard let site, site.externalLinks == .defaultBrowser else { return .stay }
+        guard let site = site, site.externalLinks == .defaultBrowser else { return .stay }
         if isPartOfSite(url, site: site) || AuthProviders.isSignIn(url) { return .stay }
         return .openExternally
     }
@@ -120,10 +120,10 @@ public enum AuthProviders {
     ]
 
     public static func isSignIn(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "https", let host = url.host()?.lowercased() else { return false }
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
         if hosts.contains(host) || hostSuffixes.contains(where: { host.hasSuffix($0) }) { return true }
         guard let prefixes = pathPrefixes[host] else { return false }
-        let path = url.path()
+        let path = url.path
         return prefixes.contains { path.hasPrefix($0) }
     }
 }

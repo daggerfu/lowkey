@@ -1,14 +1,14 @@
 import Foundation
 
 /// Where a link that leaves a saved site opens.
-public enum ExternalLinkPolicy: String, Codable, CaseIterable, Sendable {
+public enum ExternalLinkPolicy: String, Codable, CaseIterable {
     case defaultBrowser
     case lowkey
 }
 
 /// A saved site: an alias, a start page and its own website-data profile.
 /// `id` names the profile, so renaming the alias keeps cookies and logins.
-public struct Site: Codable, Identifiable, Equatable, Sendable {
+public struct Site: Codable, Identifiable, Equatable {
     public var id: UUID
     public var alias: String
     public var title: String
@@ -57,11 +57,11 @@ public struct Site: Codable, Identifiable, Equatable, Sendable {
 /// - `page`: follow each page's background (then `theme-color`) to pick the light or dark palette;
 ///   use System when no page color is available.
 /// - `system`, `light`, `dark`: the palette by the system, or always light or dark.
-public enum ThemeMode: String, Codable, CaseIterable, Sendable {
+public enum ThemeMode: String, Codable, CaseIterable {
     case tint, page, system, light, dark
 }
 
-public struct AppearanceConfig: Codable, Equatable, Sendable {
+public struct AppearanceConfig: Codable, Equatable {
     public var mode: ThemeMode
     public var light: ThemeColors
     public var dark: ThemeColors
@@ -83,14 +83,14 @@ public struct AppearanceConfig: Codable, Equatable, Sendable {
     }
 
     private static func valid(_ colors: ThemeColors?) -> ThemeColors? {
-        guard let colors, colors.isValid else { return nil }
+        guard let colors = colors, colors.isValid else { return nil }
         return colors
     }
 
     public func colors(dark isDark: Bool) -> ThemeColors { isDark ? dark : light }
 }
 
-public struct Config: Codable, Equatable, Sendable {
+public struct Config: Codable, Equatable {
     public var sites: [Site]
     public var appearance: AppearanceConfig
 

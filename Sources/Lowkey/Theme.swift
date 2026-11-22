@@ -4,7 +4,7 @@ import BobukUI
 
 extension NSColor {
     var pageColor: PageColor? {
-        guard let rgb, let color = usingColorSpace(.sRGB) else { return nil }
+        guard let rgb = rgb, let color = usingColorSpace(.sRGB) else { return nil }
         return PageColor(rgb: rgb, alpha: Double(color.alphaComponent))
     }
 }
@@ -20,22 +20,22 @@ struct PageTheme: Equatable {
 }
 
 /// Windows supply their own page classification so different pages can use different chrome modes.
-@MainActor protocol PageThemeProviding: AnyObject {
+protocol PageThemeProviding: AnyObject {
     var pageTheme: PageTheme { get }
 }
 
 extension NSView {
-    @MainActor var pageTheme: PageTheme { (window as? PageThemeProviding)?.pageTheme ?? PageTheme() }
+    var pageTheme: PageTheme { (window as? PageThemeProviding)?.pageTheme ?? PageTheme() }
 
     /// Palette tokens: for everything but the window strip.
-    @MainActor var lowkeyTokens: ThemeTokens { ThemeCenter.shared.tokens(page: pageTheme) }
+    var lowkeyTokens: ThemeTokens { ThemeCenter.shared.tokens(page: pageTheme) }
 
     /// Tokens of the window strip: tinted with the page color in Tint mode.
-    @MainActor var lowkeyStripTokens: ThemeTokens { ThemeCenter.shared.stripTokens(page: pageTheme) }
+    var lowkeyStripTokens: ThemeTokens { ThemeCenter.shared.stripTokens(page: pageTheme) }
 }
 
 /// Lowkey's chrome theme. Web pages keep the system appearance and their own colors.
-@MainActor final class ThemeCenter {
+final class ThemeCenter {
     static let shared = ThemeCenter()
     static let didChange = Notification.Name("LowkeyThemeDidChange")
 
@@ -60,11 +60,11 @@ extension NSView {
 
     func isDark(page: PageTheme) -> Bool {
         switch appearance.mode {
-        case .tint: page.tintIsDark ?? systemIsDark
-        case .page: page.isDark ?? systemIsDark
-        case .system: systemIsDark
-        case .light: false
-        case .dark: true
+        case .tint: return page.tintIsDark ?? systemIsDark
+        case .page: return page.isDark ?? systemIsDark
+        case .system: return systemIsDark
+        case .light: return false
+        case .dark: return true
         }
     }
 

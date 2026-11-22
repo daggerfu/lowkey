@@ -1,13 +1,35 @@
 import AppKit
+import os
 import BobukCore
 import LowkeyCore
 
 /// lowkey's unified log (subsystem: the bundle identifier).
 enum Log {
     static let app = BobukLog.logger("app")
+
+    /// OSLog's Swift `.error` method needs macOS 11; `os_log` works since 10.12.
+    static func error(_ message: String) {
+        #if canImport(Darwin)
+        os_log("%{public}@", log: app, type: .error, message)
+        #else
+        app.error(message)
+        #endif
+    }
 }
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+/// Library entry point for the thin `Lowkey` executable (SwiftPM 5.3 cannot test
+/// an executable target directly, so the app code lives in this library target).
+public enum LowkeyLib {
+    public static func run() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.regular)
+        withExtendedLifetime(delegate) { app.run() }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var controller: AppController!
     private var controlPort: ControlPort?
     private var localEventMonitor: Any?
@@ -16,7 +38,7 @@ enum Log {
     func applicationWillFinishLaunching(_ notification: Notification) {
         controller = AppController()
         controlPort = ControlPort(controller: controller)
-        if controlPort == nil { Log.app.error("local control port unavailable") }
+        if controlPort == nil { Log.error("local control port unavailable") }
         NSApp.mainMenu = makeMainMenu()
     }
 

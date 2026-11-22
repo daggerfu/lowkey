@@ -1,5 +1,5 @@
 /// Visibility policy shared by single-site and wildcard toggle commands.
-public enum WindowToggle: Equatable, Sendable {
+public enum WindowToggle: Equatable {
     case hide, show
 
     public static func action(isVisible: Bool, isMiniaturized: Bool, isFrontmost: Bool) -> WindowToggle {
@@ -26,7 +26,7 @@ public enum WindowToggle: Equatable, Sendable {
         var moves: [(window: Int, anchor: Int)] = []
 
         func endGroup() {
-            if let anchor, let rank = ranks[anchor], group.contains(where: { ranks[$0, default: .max] < rank }) {
+            if let anchor = anchor, let rank = ranks[anchor], group.contains(where: { ranks[$0, default: .max] < rank }) {
                 moves += group.reversed().map { ($0, anchor) }
             }
             group.removeAll()

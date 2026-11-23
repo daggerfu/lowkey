@@ -5,7 +5,7 @@ import AppKit
 import BobukCore
 import LowkeyCore
 
-@main struct CLI {
+struct CLI {
     static let pageUsage = "\n       lowkeyctl <site-alias> <inspect|status> [--json]\n       lowkeyctl <site-alias> wait [label] [--timeout seconds]\n       lowkeyctl <site-alias> <fill|select> <label> <value>\n       lowkeyctl <site-alias> save-pdf <file.pdf>"
     static let usage = "Usage: lowkeyctl <site-alias> <toggle|open|hide|rewind>\n       lowkeyctl <site-alias> click \"<button or link label>\"\n       lowkeyctl <site-alias> upload <file> [--field \"<field label>\"]" + pageUsage
 

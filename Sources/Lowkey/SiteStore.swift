@@ -23,30 +23,37 @@ enum SiteStoreFactory {
     }
 
     private static func plainStore(id: UUID) -> WKWebsiteDataStore {
-        #if compiler(>=5.4)
-        if #available(macOS 11, *) {
+        #if compiler(>=5.9)
+        if #available(macOS 14, *) {
             return WKWebsiteDataStore(forIdentifier: id)
-        } else {
-            return .default()
         }
-        #else
-        return .default()
         #endif
+        if #available(macOS 12, *), let store = configuredStore(id: id, proxy: nil) {
+            return store
+        }
+        return .default()
     }
 
     /// The private configuration needs the public `identifier` API (macOS 12) for the same
     /// persistent profile paths that `WKWebsiteDataStore(forIdentifier:)` uses.
     private static func proxiedStore(id: UUID, proxy: SocksProxy) -> WKWebsiteDataStore? {
+        configuredStore(id: id, proxy: proxyDictionary(proxy) as NSDictionary)
+    }
+
+    private static func configuredStore(id: UUID, proxy: NSDictionary?) -> WKWebsiteDataStore? {
         guard #available(macOS 12, *),
               let configClass = NSClassFromString("_WKWebsiteDataStoreConfiguration") as? NSObject.Type,
               WKWebsiteDataStore.responds(to: NSSelectorFromString("_dataStoreWithConfiguration:"))
         else { return nil }
         let config = configClass.init()
         let setIdentifier = NSSelectorFromString("setIdentifier:")
-        let setProxy = NSSelectorFromString("setProxyConfiguration:")
-        guard config.responds(to: setIdentifier), config.responds(to: setProxy) else { return nil }
+        guard config.responds(to: setIdentifier) else { return nil }
         config.perform(setIdentifier, with: id)
-        config.perform(setProxy, with: proxyDictionary(proxy) as NSDictionary)
+        if let proxy = proxy {
+            let setProxy = NSSelectorFromString("setProxyConfiguration:")
+            guard config.responds(to: setProxy) else { return nil }
+            config.perform(setProxy, with: proxy)
+        }
         let result = WKWebsiteDataStore.perform(NSSelectorFromString("_dataStoreWithConfiguration:"), with: config)
         return result?.takeUnretainedValue() as? WKWebsiteDataStore
     }

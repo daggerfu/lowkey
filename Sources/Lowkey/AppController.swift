@@ -302,8 +302,8 @@ final class AppController {
         siteWindows[id] = nil
         // Give WebKit a moment to release the store of the closed window.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            #if compiler(>=5.4)
-            if #available(macOS 11, *) {
+            #if compiler(>=5.9)
+            if #available(macOS 14, *) {
                 WKWebsiteDataStore.remove(forIdentifier: id) { error in
                     if let error = error {
                         Log.error("can’t remove the profile of a deleted site: \(error.localizedDescription)")
